@@ -1,0 +1,891 @@
+' fft_testsuite.spin2
+CON
+    XTAL_FREQ = 20_000_000
+    VCO_divide = 2   ' 4 bit field, represents 2/4/6/8/10/....
+    PLL_divide = 4   ' 6 bit field, offset 1
+    PLL_mult = 64   ' 10 bit field, offset 1
+    
+    OSCMODE = %1_000000_0000000000_0000_01_00 | ((PLL_divide-1) << 18) | ((PLL_mult-1) << 8) | ((VCO_divide/2-1) << 4)
+    FREQ = XTAL_FREQ / PLL_divide * PLL_mult / VCO_divide  ' 160_000_000
+
+    BAUD = 2 * 115_200
+    
+    TOLERANCE = 2
+
+    MAXN = 8
+    MAXNN = 1 << MAXN
+
+    FIXINT = 8     ' use fix8.24 as its easier to understand the hex numbers.
+    FIXFRACT = 32-FIXINT
+
+    FFT_SCALED      = fft#GO | fft#DO_SCALED | fft#DO_FORWARDS
+    FFT_RAW         = fft#GO | fft#DO_FORWARDS
+    FFT_WITH_MAGSQR = fft#GO | fft#DO_SCALED | fft#DO_FORWARDS | fft#DO_MAG_SQR
+
+OBJ
+    ser: "SmartSerial.spin2"
+    fft: "sa_fft7.spin2"
+
+VAR
+    long  N, NN
+    long  fft_cog
+    long  testname
+    long  errcount
+    long  scratch[2*MAXNN]
+
+
+PUB demo
+    fft_cog := -1
+    clkset (OSCMODE, FREQ)
+    pausems (1000)
+    ser.start (63, 62, 0, BAUD)
+
+    ser.str (string ("FFT Testsuite"))
+    ser.tx(13)
+    ser.tx(10)
+
+    setN(4)
+    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | fft#INP_COMPLEX | 8))  ' complex flag set
+    Test0
+    Test2_2
+    KillFFT
+
+    setN(4)
+    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | 8))   ' real
+    Test1
+    Test2
+    KillFFT
+
+    setN(6)
+    
+    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | 8))
+    Test3
+    Test5
+    KillFFT
+
+    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | fft#INP_COMPLEX | 8))
+    Test4
+    KillFFT
+
+    setN(5)
+
+    InitFFT (N, 11, @scratch, (fft#INP_SHARED | 8))
+    Test6
+    KillFFT
+
+    ser.dec (FFT_timing)
+    ser.str (string (" clks"))
+    ser.tx(13)
+    ser.tx(10)
+
+PUB  setN (v)
+    N := v
+    NN := 1 << v
+
+
+PUB  CheckVal (offset, value)
+    if abs (scratch[offset] - value) > TOLERANCE
+        errcount += 1
+        ser.str (string ("Test fail "))
+        ser.str (testname)
+        ser.str (string ("   expected "))
+        ser.hex (value, 8)
+        ser.str (string (" at "))
+        ser.dec (offset)
+        ser.str (string (" but saw "))
+        ser.hex (scratch[offset], 8)
+        ser.tx(13)
+        ser.tx(10)
+
+PUB  Passed
+    ser.str (testname)
+    ser.str (string (" done with "))
+    ser.dec (errcount)
+    ser.str (string (" errors"))
+    ser.tx(13)
+    ser.tx(10)
+
+PUB  StartTest(name)
+    testname := name
+    errcount := 0
+    ser.str (testname)
+    ser.str (string (": running"))
+    ser.tx(13)
+    ser.tx(10)
+
+
+PUB  InitFFT (N, fix, arr, inp_flags)
+    byte[@FFT_operation][0]  := 0
+    byte[@FFT_operation][1]  := fix  '    FFT_fixint := FIXINT
+    byte[@FFT_operation][2]  := fix  '    FFT_input_fixint := FIXINT
+    byte[@FFT_operation][3]  := inp_flags '    FFT_input_flags
+    byte[@FFT_N][0]  := N
+    byte[@FFT_N][1]  := fix   ' magsquared fixint
+    byte[@FFT_N][2]  := 0
+    FFT_input_buf := arr
+    FFT_work_buf  := arr
+    FFT_window_buf := 0
+    fft_cog := fft.start (@FFT_operation)
+    pausems(2)
+
+PUB  RunFFT (operation)
+    byte[@FFT_operation][0] := operation
+    repeat until byte[@FFT_operation][0] == 0
+    
+PUB  KillFFT
+    if fft_cog <> -1
+        cogstop (fft_cog)
+
+PUB  Test1 | i
+    StartTest (string ("Test one"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := i << (FIXFRACT - N)
+	scratch[i+1] := 0
+        i += 2
+
+    RunFFT (FFT_WITH_MAGSQR)
+{
+    ser.str(string("res"))
+    ser.tx(13)
+    ser.tx(10)
+    
+    i := 0
+    repeat until i => 32
+    	ser.hex (scratch [i], 8)
+	ser.tx(32)
+    	ser.hex (scratch [i+1], 8)
+	ser.tx(13)
+	ser.tx(10)
+    	i += 2
+}
+    CheckVal (0, $01c20000)
+    CheckVal (2, $00348c5c)
+    CheckVal (4, $000da828)
+    CheckVal (6, $00067acb)
+    CheckVal (8, $00040000)
+    CheckVal (10, $0002e497)
+    CheckVal (12, $000257d8)
+    CheckVal (14, $00021442)
+    CheckVal (16, $00020000)
+    Passed
+
+PUB  Test0 | i
+    StartTest (string ("Test zero"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := i << (FIXFRACT - N)
+	scratch[i+1] := 0
+        i += 2
+
+    RunFFT (FFT_SCALED)
+    CheckVal (0, $00f00000)
+    CheckVal (1, $00000000)
+    CheckVal (2, $fff00000)
+    CheckVal (3, $00506ffc)
+    CheckVal (4, $fff00000)
+    CheckVal (5, $0026a09e)
+    CheckVal (6, $fff00000)
+    CheckVal (7, $0017f219)
+    CheckVal (8, $fff00000)
+    CheckVal (9, $00100000)
+    CheckVal (10, $fff00000)
+    CheckVal (11, $000ab0dc)
+    CheckVal (12, $fff00000)
+    CheckVal (13, $0006a09e)
+    CheckVal (14, $fff00000)
+    CheckVal (15, $00032ebf)
+    CheckVal (16, $fff00000)
+    CheckVal (17, $00000000)
+    CheckVal (18, $fff00000)
+    CheckVal (19, $fffcd141)
+    CheckVal (20, $fff00000)
+    CheckVal (21, $fff95f62)
+    CheckVal (22, $fff00000)
+    CheckVal (23, $fff54f24)
+    CheckVal (24, $fff00000)
+    CheckVal (25, $fff00000)
+    CheckVal (26, $fff00000)
+    CheckVal (27, $ffe80de7)
+    CheckVal (28, $fff00000)
+    CheckVal (29, $ffd95f62)
+    CheckVal (30, $fff00000)
+    CheckVal (31, $ffaf9004)
+    Passed
+
+
+PUB  Test2 | i
+    StartTest (string ("Test two"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := 1 << FIXFRACT
+	scratch[i+1] := 0
+        i += 2
+
+    RunFFT (FFT_SCALED)
+    CheckVal (0, $01000000)
+    CheckVal (1, $00000000)
+    CheckVal (2, $00000000)
+    CheckVal (3, $00000000)
+    CheckVal (4, $00000000)
+    CheckVal (5, $00000000)
+    CheckVal (6, $00000000)
+    CheckVal (7, $00000000)
+    CheckVal (8, $00000000)
+    CheckVal (9, $00000000)
+    CheckVal (10, $00000000)
+    CheckVal (11, $00000000)
+    CheckVal (12, $00000000)
+    CheckVal (13, $00000000)
+    CheckVal (14, $00000000)
+    CheckVal (15, $00000000)
+    CheckVal (16, $00000000)
+    Passed
+
+PUB  Test2_2 | i
+    StartTest (string ("Test two_2"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := i << (FIXFRACT-3)
+	scratch[i+1] := i << (FIXFRACT-3)
+        i += 2
+
+    RunFFT (FFT_SCALED)
+    CheckVal (0, $01e00000)
+    CheckVal (1, $01e00000)
+    CheckVal (2, $ff3f2009)
+    CheckVal (3, $0080dff7)
+    CheckVal (4, $ff92bec3)
+    CheckVal (5, $002d413d)
+    CheckVal (6, $ffb01bce)
+    CheckVal (7, $000fe432)
+    CheckVal (8, $ffc00000)
+    CheckVal (9, $00000000)
+    CheckVal (10, $ffca9e48)
+    CheckVal (11, $fff561b8)
+    CheckVal (12, $ffd2bec3)
+    CheckVal (13, $ffed413d)
+    CheckVal (14, $ffd9a283)
+    CheckVal (15, $ffe65d7d)
+    CheckVal (16, $ffe00000)
+    CheckVal (17, $ffe00000)
+    CheckVal (18, $ffe65d7d)
+    CheckVal (19, $ffd9a283)
+    CheckVal (20, $ffed413d)
+    CheckVal (21, $ffd2bec3)
+    CheckVal (22, $fff561b8)
+    CheckVal (23, $ffca9e48)
+    CheckVal (24, $00000000)
+    CheckVal (25, $ffc00000)
+    CheckVal (26, $000fe432)
+    CheckVal (27, $ffb01bce)
+    CheckVal (28, $002d413d)
+    CheckVal (29, $ff92bec3)
+    CheckVal (30, $0080dff7)
+    CheckVal (31, $ff3f2009)
+    Passed
+
+
+PUB  Test3 | i
+    StartTest (string ("Test three"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := 1 << FIXFRACT
+	scratch[i+1] := 0
+        scratch[i+2] := -1 << FIXFRACT
+	scratch[i+3] := 0
+        scratch[i+4] := -1 << FIXFRACT
+	scratch[i+5] := 0
+        scratch[i+6] := 1 << FIXFRACT
+	scratch[i+7] := 0
+        i += 8
+
+    RunFFT (FFT_WITH_MAGSQR)
+{
+    i := 0
+    repeat until i => NN+2
+    	ser.hex (scratch [i], 8)
+	ser.tx(32)
+    	ser.hex (scratch [i+1], 8)
+	ser.tx(13)
+	ser.tx(10)
+    	i += 2
+}
+    CheckVal (0, $00000000)
+    CheckVal (2, $00000000)
+    CheckVal (4, $00000000)
+    CheckVal (6, $00000000)
+    CheckVal (8, $00000000)
+    CheckVal (10, $00000000)
+    CheckVal (12, $00000000)
+    CheckVal (14, $00000000)
+    CheckVal (16, $00000000)
+    CheckVal (18, $00000000)
+    CheckVal (20, $00000000)
+    CheckVal (22, $00000000)
+    CheckVal (24, $00000000)
+    CheckVal (26, $00000000)
+    CheckVal (28, $00000000)
+    CheckVal (30, $00000000)
+    CheckVal (32, $01000000)
+    CheckVal (34, $00000000)
+    CheckVal (36, $00000000)
+    CheckVal (38, $00000000)
+    CheckVal (40, $00000000)
+    CheckVal (42, $00000000)
+    CheckVal (44, $00000000)
+    CheckVal (46, $00000000)
+    CheckVal (48, $00000000)
+    CheckVal (50, $00000000)
+    CheckVal (52, $00000000)
+    CheckVal (54, $00000000)
+    CheckVal (56, $00000000)
+    CheckVal (58, $00000000)
+    CheckVal (60, $00000000)
+    CheckVal (62, $00000000)
+    CheckVal (64, $00000000)
+    Passed
+
+
+PUB  Test4
+    StartTest (string ("Test four, gaussian"))
+    scratch[0] := $03066395
+    scratch[1] := $01124889
+    scratch[2] := $ffd11208
+    scratch[3] := $fe6eec66
+    scratch[4] := $0014f816
+    scratch[5] := $fdf568cc
+    scratch[6] := $ffe86380
+    scratch[7] := $004ff6b8
+    scratch[8] := $fe7b0785
+    scratch[9] := $feb242ff
+    scratch[10] := $008d768b
+    scratch[11] := $00522691
+    scratch[12] := $ff6b708f
+    scratch[13] := $ff865a7d
+    scratch[14] := $ff8a13c2
+    scratch[15] := $0180aee2
+    scratch[16] := $ffd44968
+    scratch[17] := $00e224dd
+    scratch[18] := $fefd5db0
+    scratch[19] := $ff54813a
+    scratch[20] := $ff0ec546
+    scratch[21] := $ff81aa88
+    scratch[22] := $01196180
+    scratch[23] := $0017046c
+    scratch[24] := $02bcaf63
+    scratch[25] := $005b42bf
+    scratch[26] := $0196657a
+    scratch[27] := $00932c10
+    scratch[28] := $008a462f
+    scratch[29] := $ffc31e00
+    scratch[30] := $fd93154d
+    scratch[31] := $00e4bfc0
+    scratch[32] := $ff04d219
+    scratch[33] := $0020d966
+    scratch[34] := $0061f986
+    scratch[35] := $0138b3e4
+    scratch[36] := $ff77aa80
+    scratch[37] := $004c2e76
+    scratch[38] := $00111c0b
+    scratch[39] := $00cbae25
+    scratch[40] := $fff804a5
+    scratch[41] := $fdd7b8af
+    scratch[42] := $ff49d724
+    scratch[43] := $ff27e9e3
+    scratch[44] := $00355db0
+    scratch[45] := $0081260f
+    scratch[46] := $fedf92ce
+    scratch[47] := $01d83ae9
+    scratch[48] := $ff40d877
+    scratch[49] := $ff702ab8
+    scratch[50] := $003a4791
+    scratch[51] := $ff6fd3d1
+    scratch[52] := $002c5a9a
+    scratch[53] := $00e2b92b
+    scratch[54] := $00708351
+    scratch[55] := $ff4d0cc8
+    scratch[56] := $00e25f8e
+    scratch[57] := $00a2e485
+    scratch[58] := $fdf7f9ae
+    scratch[59] := $ff83e362
+    scratch[60] := $003aca7a
+    scratch[61] := $ff479b3f
+    scratch[62] := $ffc5b02e
+    scratch[63] := $00cde1cf
+    scratch[64] := $ff899978
+    scratch[65] := $febad9e6
+    scratch[66] := $011811f0
+    scratch[67] := $0072bd75
+    scratch[68] := $013f3a2c
+    scratch[69] := $ff9601a3
+    scratch[70] := $0175aa80
+    scratch[71] := $fef1f5e4
+    scratch[72] := $ffcbefef
+    scratch[73] := $019ad319
+    scratch[74] := $ffd30399
+    scratch[75] := $01702998
+    scratch[76] := $ffb6101d
+    scratch[77] := $fff9ea7b
+    scratch[78] := $ff43d042
+    scratch[79] := $00c56706
+    scratch[80] := $fefc5f79
+    scratch[81] := $00d19657
+    scratch[82] := $ff0eef99
+    scratch[83] := $fe968e02
+    scratch[84] := $00c7b018
+    scratch[85] := $00244d7a
+    scratch[86] := $0206ea93
+    scratch[87] := $00b0debe
+    scratch[88] := $fe0d28b8
+    scratch[89] := $002b5da5
+    scratch[90] := $00a1443f
+    scratch[91] := $0010ff9d
+    scratch[92] := $00711450
+    scratch[93] := $01424f6d
+    scratch[94] := $01023532
+    scratch[95] := $00032ce5
+    scratch[96] := $003079f5
+    scratch[97] := $fee56a48
+    scratch[98] := $ff72994d
+    scratch[99] := $003ba51b
+    scratch[100] := $fe2934fc
+    scratch[101] := $ff4a8b00
+    scratch[102] := $ff318707
+    scratch[103] := $ff1dfc1e
+    scratch[104] := $ff783d07
+    scratch[105] := $0096979a
+    scratch[106] := $ffb707be
+    scratch[107] := $ff463f21
+    scratch[108] := $fee3e939
+    scratch[109] := $fff0899f
+    scratch[110] := $ff400b39
+    scratch[111] := $0045cb53
+    scratch[112] := $ff9485e9
+    scratch[113] := $fee98d62
+    scratch[114] := $00264dc9
+    scratch[115] := $014ed388
+    scratch[116] := $ffcc5441
+    scratch[117] := $00a7ddcc
+    scratch[118] := $01f6dbe2
+    scratch[119] := $00fd2864
+    scratch[120] := $0215f61b
+    scratch[121] := $015e5cb9
+    scratch[122] := $0031b8e2
+    scratch[123] := $009ac235
+    scratch[124] := $ff5d82ba
+    scratch[125] := $feea8f0c
+    scratch[126] := $ffcd22e4
+    scratch[127] := $ff7b653e
+
+    RunFFT (FFT_SCALED)
+
+    CheckVal (0, $fffa8a9d)
+    CheckVal (1, $000d998e)
+    CheckVal (2, $0009fd12)
+    CheckVal (3, $fff5f8ae)
+    CheckVal (4, $00242f27)
+    CheckVal (5, $ffe815a5)
+    CheckVal (6, $ffe073c2)
+    CheckVal (7, $0018fd4e)
+    CheckVal (8, $00018e97)
+    CheckVal (9, $001b418d)
+    CheckVal (10, $ffebf70d)
+    CheckVal (11, $001bea6f)
+    CheckVal (12, $000e8bf6)
+    CheckVal (13, $ffaa244c)
+    CheckVal (14, $ffeba1c4)
+    CheckVal (15, $fffdb2e0)
+    CheckVal (16, $ffbecaf3)
+    CheckVal (17, $ffe292cc)
+    CheckVal (18, $002017d6)
+    CheckVal (19, $0029417e)
+    CheckVal (20, $00165f27)
+    CheckVal (21, $fff8b25e)
+    CheckVal (22, $00375db6)
+    CheckVal (23, $ffee0fcc)
+    CheckVal (24, $003bacc7)
+    CheckVal (25, $ffef0691)
+    CheckVal (26, $ffdb458c)
+    CheckVal (27, $ffe86b8e)
+    CheckVal (28, $ffef5af8)
+    CheckVal (29, $00183c41)
+    CheckVal (30, $0043ac06)
+    CheckVal (31, $0002ae1c)
+    CheckVal (32, $fff5c85b)
+    CheckVal (33, $0013e23e)
+    CheckVal (34, $000c4225)
+    CheckVal (35, $000ff487)
+    CheckVal (36, $002659b1)
+    CheckVal (37, $003e6625)
+    CheckVal (38, $ffdd8024)
+    CheckVal (39, $00171c5c)
+    CheckVal (40, $00086b69)
+    CheckVal (41, $00081f3d)
+    CheckVal (42, $0019ef4c)
+    CheckVal (43, $00385d9d)
+    CheckVal (44, $ffc1cb74)
+    CheckVal (45, $001e0e9e)
+    CheckVal (46, $0022b12d)
+    CheckVal (47, $000ce65a)
+    CheckVal (48, $000781e7)
+    CheckVal (49, $ffcf1283)
+    CheckVal (50, $00235c81)
+    CheckVal (51, $003b021e)
+    CheckVal (52, $001a5d5d)
+    CheckVal (53, $fff4372a)
+    CheckVal (54, $002dafdc)
+    CheckVal (55, $002c0204)
+    CheckVal (56, $002485cc)
+    CheckVal (57, $ffe829a5)
+    CheckVal (58, $fff7ea88)
+    CheckVal (59, $fffd6787)
+    CheckVal (60, $000ed806)
+    CheckVal (61, $fff37635)
+    CheckVal (62, $001958b1)
+    CheckVal (63, $0012daa9)
+    CheckVal (64, $fff93047)
+    CheckVal (65, $ffdf6977)
+    CheckVal (66, $ffe89ce6)
+    CheckVal (67, $ffd53e8f)
+    CheckVal (68, $00187bfe)
+    CheckVal (69, $00143a4b)
+    CheckVal (70, $00088158)
+    CheckVal (71, $00093a69)
+    CheckVal (72, $fff6a921)
+    CheckVal (73, $00024df1)
+    CheckVal (74, $00211901)
+    CheckVal (75, $0026f527)
+    CheckVal (76, $00023a7a)
+    CheckVal (77, $00200c76)
+    CheckVal (78, $ffecb8ec)
+    CheckVal (79, $0006f542)
+    CheckVal (80, $002a0d8c)
+    CheckVal (81, $000aab8a)
+    CheckVal (82, $0024ab84)
+    CheckVal (83, $000e5ac0)
+    CheckVal (84, $001fe38a)
+    CheckVal (85, $ffd7d36a)
+    CheckVal (86, $000ff4fb)
+    CheckVal (87, $002354cc)
+    CheckVal (88, $ffe867b7)
+    CheckVal (89, $0003fa74)
+    CheckVal (90, $001f5676)
+    CheckVal (91, $fffcae6e)
+    CheckVal (92, $fff00c0f)
+    CheckVal (93, $00002012)
+    CheckVal (94, $001828e0)
+    CheckVal (95, $0033aa59)
+    CheckVal (96, $0024c835)
+    CheckVal (97, $00015cd4)
+    CheckVal (98, $003c6769)
+    CheckVal (99, $000685a7)
+    CheckVal (100, $00183e93)
+    CheckVal (101, $001db99e)
+    CheckVal (102, $fff2541d)
+    CheckVal (103, $ffe51104)
+    CheckVal (104, $00048949)
+    CheckVal (105, $00275fbc)
+    CheckVal (106, $00290797)
+    CheckVal (107, $0045a6e0)
+    CheckVal (108, $00265ad6)
+    CheckVal (109, $0023d0de)
+    CheckVal (110, $ffdb8b81)
+    CheckVal (111, $ffd2ca54)
+    CheckVal (112, $ffeec431)
+    CheckVal (113, $001d883e)
+    CheckVal (114, $001b7b5e)
+    CheckVal (115, $0005f386)
+    CheckVal (116, $000ab30e)
+    CheckVal (117, $fffc45e2)
+    CheckVal (118, $000d411b)
+    CheckVal (119, $ffc86c54)
+    CheckVal (120, $00362187)
+    CheckVal (121, $ffb08539)
+    CheckVal (122, $002ca214)
+    CheckVal (123, $ffe31cbc)
+    CheckVal (124, $0018e9f6)
+    CheckVal (125, $00006261)
+    CheckVal (126, $000984c7)
+    CheckVal (127, $fff92dbb)
+
+    Passed
+
+PUB  Test5
+    StartTest (string ("Test five, gaussian"))
+    scratch[0] := $fd7ac3fc
+    scratch[1] := 0
+    scratch[2] := $00bdd50a
+    scratch[3] := 0
+    scratch[4] := $ffcba55c
+    scratch[5] := 0
+    scratch[6] := $004cd080
+    scratch[7] := 0
+    scratch[8] := $fd4ca845
+    scratch[9] := 0
+    scratch[10] := $ff784dd1
+    scratch[11] := 0
+    scratch[12] := $01be1cf1
+    scratch[13] := 0
+    scratch[14] := $ff7a6d25
+    scratch[15] := 0
+    scratch[16] := $fff46d9a
+    scratch[17] := 0
+    scratch[18] := $011b9860
+    scratch[19] := 0
+    scratch[20] := $00221d14
+    scratch[21] := 0
+    scratch[22] := $019a74ca
+    scratch[23] := 0
+    scratch[24] := $ff267f8f
+    scratch[25] := 0
+    scratch[26] := $0182f08d
+    scratch[27] := 0
+    scratch[28] := $ff25da38
+    scratch[29] := 0
+    scratch[30] := $0032b055
+    scratch[31] := 0
+    scratch[32] := $ff6975b2
+    scratch[33] := 0
+    scratch[34] := $0170f6bc
+    scratch[35] := 0
+    scratch[36] := $ff72b2cd
+    scratch[37] := 0
+    scratch[38] := $ff8f6c45
+    scratch[39] := 0
+    scratch[40] := $01aa548a
+    scratch[41] := 0
+    scratch[42] := $0062d0a5
+    scratch[43] := 0
+    scratch[44] := $fed2544d
+    scratch[45] := 0
+    scratch[46] := $ffa09196
+    scratch[47] := 0
+    scratch[48] := $01330882
+    scratch[49] := 0
+    scratch[50] := $ffb72d9e
+    scratch[51] := 0
+    scratch[52] := $000fcfa5
+    scratch[53] := 0
+    scratch[54] := $ffd11d9d
+    scratch[55] := 0
+    scratch[56] := $ff11d575
+    scratch[57] := 0
+    scratch[58] := $017cf22d
+    scratch[59] := 0
+    scratch[60] := $fff141ae
+    scratch[61] := 0
+    scratch[62] := $fe421f7f
+    scratch[63] := 0
+    scratch[64] := $feb8efd7
+    scratch[65] := 0
+    scratch[66] := $ff64ceb6
+    scratch[67] := 0
+    scratch[68] := $ff93776c
+    scratch[69] := 0
+    scratch[70] := $00bed8ca
+    scratch[71] := 0
+    scratch[72] := $febcef3c
+    scratch[73] := 0
+    scratch[74] := $fd8efa9a
+    scratch[75] := 0
+    scratch[76] := $ff6078ab
+    scratch[77] := 0
+    scratch[78] := $ff773081
+    scratch[79] := 0
+    scratch[80] := $01571ff6
+    scratch[81] := 0
+    scratch[82] := $ffa0d7a8
+    scratch[83] := 0
+    scratch[84] := $ff9f1e71
+    scratch[85] := 0
+    scratch[86] := $fe5b4b57
+    scratch[87] := 0
+    scratch[88] := $002f3100
+    scratch[89] := 0
+    scratch[90] := $ffc475e9
+    scratch[91] := 0
+    scratch[92] := $00e2a37e
+    scratch[93] := 0
+    scratch[94] := $ff9a76ac
+    scratch[95] := 0
+    scratch[96] := $02a19111
+    scratch[97] := 0
+    scratch[98] := $0050b32b
+    scratch[99] := 0
+    scratch[100] := $00a750f7
+    scratch[101] := 0
+    scratch[102] := $01c821c6
+    scratch[103] := 0
+    scratch[104] := $fe5a121f
+    scratch[105] := 0
+    scratch[106] := $00f36f9b
+    scratch[107] := 0
+    scratch[108] := $00730bc3
+    scratch[109] := 0
+    scratch[110] := $019d11d7
+    scratch[111] := 0
+    scratch[112] := $feb66be7
+    scratch[113] := 0
+    scratch[114] := $003f7064
+    scratch[115] := 0
+    scratch[116] := $001a1e2e
+    scratch[117] := 0
+    scratch[118] := $0047989a
+    scratch[119] := 0
+    scratch[120] := $001b1aa1
+    scratch[121] := 0
+    scratch[122] := $0148b0e9
+    scratch[123] := 0
+    scratch[124] := $fef11b1f
+    scratch[125] := 0
+    scratch[126] := $026d4c7b
+    scratch[127] := 0
+    RunFFT (FFT_WITH_MAGSQR)
+    CheckVal (0, $0000168c)
+    CheckVal (2, $0009a6c6)
+    CheckVal (4, $00182609)
+    CheckVal (6, $0002eed7)
+    CheckVal (8, $000284ea)
+    CheckVal (10, $00068f26)
+    CheckVal (12, $000630d4)
+    CheckVal (14, $000156e9)
+    CheckVal (16, $00020813)
+    CheckVal (18, $0007cd3b)
+    CheckVal (20, $0006539f)
+    CheckVal (22, $0004724e)
+    CheckVal (24, $000c6670)
+    CheckVal (26, $0013dab1)
+    CheckVal (28, $000a81ef)
+    CheckVal (30, $00031262)
+    CheckVal (32, $0003303d)
+    CheckVal (34, $00171cb5)
+    CheckVal (36, $0009eae6)
+    CheckVal (38, $0004a92d)
+    CheckVal (40, $00039008)
+    CheckVal (42, $001f34ed)
+    CheckVal (44, $0003efa7)
+    CheckVal (46, $0002470c)
+    CheckVal (48, $0004bc18)
+    CheckVal (50, $0004a777)
+    CheckVal (52, $000e8334)
+    CheckVal (54, $00183847)
+    CheckVal (56, $0009bd81)
+    CheckVal (58, $000e8d2d)
+    CheckVal (60, $000bf968)
+    CheckVal (62, $00267c8f)
+    CheckVal (64, $001dab32)
+    Passed
+
+PUB  Test6
+    StartTest (string ("Test six, fix11.21"))
+    scratch[0] := $fff1e0cd
+    scratch[1] := 0
+    scratch[2] := $ffd48a9d
+    scratch[3] := 0
+    scratch[4] := $002d7d94
+    scratch[5] := 0
+    scratch[6] := $00303150
+    scratch[7] := 0
+    scratch[8] := $0019cf14
+    scratch[9] := 0
+    scratch[10] := $0017eafa
+    scratch[11] := 0
+    scratch[12] := $00119597
+    scratch[13] := 0
+    scratch[14] := $fffe697a
+    scratch[15] := 0
+    scratch[16] := $ffe81f4c
+    scratch[17] := 0
+    scratch[18] := $0018c5e6
+    scratch[19] := 0
+    scratch[20] := $fff26845
+    scratch[21] := 0
+    scratch[22] := $fffeae2f
+    scratch[23] := 0
+    scratch[24] := $ffe8dfdb
+    scratch[25] := 0
+    scratch[26] := $ffa9d3a0
+    scratch[27] := 0
+    scratch[28] := $ffdca746
+    scratch[29] := 0
+    scratch[30] := $001355e8
+    scratch[31] := 0
+    scratch[32] := $0010a9fc
+    scratch[33] := 0
+    scratch[34] := $ffe4ec3c
+    scratch[35] := 0
+    scratch[36] := $0019569c
+    scratch[37] := 0
+    scratch[38] := $ffcb5197
+    scratch[39] := 0
+    scratch[40] := $00037c0c
+    scratch[41] := 0
+    scratch[42] := $fffb3abd
+    scratch[43] := 0
+    scratch[44] := $ffdd437e
+    scratch[45] := 0
+    scratch[46] := $0039ee48
+    scratch[47] := 0
+    scratch[48] := $001bb37a
+    scratch[49] := 0
+    scratch[50] := $000addef
+    scratch[51] := 0
+    scratch[52] := $ffeb73b1
+    scratch[53] := 0
+    scratch[54] := $00172c40
+    scratch[55] := 0
+    scratch[56] := $0000fcad
+    scratch[57] := 0
+    scratch[58] := $ffecb88b
+    scratch[59] := 0
+    scratch[60] := $ffea635b
+    scratch[61] := 0
+    scratch[62] := $00386bd2
+    scratch[63] := 0
+    RunFFT (FFT_SCALED)
+    CheckVal (0, $000022e4)
+    CheckVal (1, $00000000)
+    CheckVal (2, $00070deb)
+    CheckVal (3, $0000e364)
+    CheckVal (4, $fffd1702)
+    CheckVal (5, $fff9dbd4)
+    CheckVal (6, $fffc446c)
+    CheckVal (7, $fffda098)
+    CheckVal (8, $0003a58a)
+    CheckVal (9, $fffdefd6)
+    CheckVal (10, $fff88cd7)
+    CheckVal (11, $000432d2)
+    CheckVal (12, $0001d721)
+    CheckVal (13, $00033588)
+    CheckVal (14, $ffff6393)
+    CheckVal (15, $fffebb33)
+    CheckVal (16, $0001978b)
+    CheckVal (17, $00087552)
+    CheckVal (18, $fffdb28a)
+    CheckVal (19, $00059c35)
+    CheckVal (20, $fffb3322)
+    CheckVal (21, $00066493)
+    CheckVal (22, $00054851)
+    CheckVal (23, $000001b7)
+    CheckVal (24, $fffc4dd5)
+    CheckVal (25, $0004dc9d)
+    CheckVal (26, $fffdf286)
+    CheckVal (27, $ffffb98b)
+    CheckVal (28, $0005b5bb)
+    CheckVal (29, $000378b2)
+    CheckVal (30, $fffc1d92)
+    CheckVal (31, $0001296a)
+    CheckVal (32, $fffe5ead)
+    CheckVal (33, $00000000)
+    Passed
+
+DAT
+    ' params for FFT
+
+FFT_operation long    0
+FFT_N         long    MAXN
+FFT_input_buf long    0
+FFT_work_buf  long    0
+FFT_window_buf long   0
+FFT_timing    long    0

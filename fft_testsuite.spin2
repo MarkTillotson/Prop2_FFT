@@ -22,6 +22,8 @@ CON
     FFT_RAW         = fft#GO | fft#DO_FORWARDS
     FFT_WITH_MAGSQR = fft#GO | fft#DO_SCALED | fft#DO_FORWARDS | fft#DO_MAG_SQR
 
+    FFT_RAW_INV     = fft#GO | fft#DO_INVERSE
+
 OBJ
     ser: "SmartSerial.spin2"
     fft: "sa_fft7.spin2"
@@ -92,6 +94,12 @@ PUB demo
     Test7
     KillFFT
 
+    setN(4)
+    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8)
+    TestForw
+    TestInv
+    KillFFT
+
     ser.dec (FFT_timing)
     ser.str (string (" clks"))
     ser.tx(13)
@@ -104,6 +112,20 @@ PUB  setN (v)
 
 PUB  CheckVal (offset, value)
     if abs (scratch[offset] - value) > TOLERANCE
+        errcount += 1
+        ser.str (string ("Test fail "))
+        ser.str (testname)
+        ser.str (string ("   expected "))
+        ser.hex (value, 8)
+        ser.str (string (" at "))
+        ser.dec (offset)
+        ser.str (string (" but saw "))
+        ser.hex (scratch[offset], 8)
+        ser.tx(13)
+        ser.tx(10)
+
+PUB  CheckValSlack (offset, value)
+    if abs (scratch[offset] - value) > 2*TOLERANCE
         errcount += 1
         ser.str (string ("Test fail "))
         ser.str (testname)
@@ -1094,6 +1116,172 @@ PUB  Test7
     CheckVal2 (62, $00267c8f)
     CheckVal2 (64, $001dab32)
     Passed
+
+
+PUB  TestForw | i
+    StartTest (string ("TestForw"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := i << (FIXFRACT - N)
+	scratch[i+1] := 0
+        i += 2
+
+    RunFFT (FFT_SCALED)
+    CheckVal (0, $00f00000)
+    CheckVal (1, $00000000)
+    CheckVal (2, $fff00000)
+    CheckVal (3, $00506ffc)
+    CheckVal (4, $fff00000)
+    CheckVal (5, $0026a09e)
+    CheckVal (6, $fff00000)
+    CheckVal (7, $0017f219)
+    CheckVal (8, $fff00000)
+    CheckVal (9, $00100000)
+    CheckVal (10, $fff00000)
+    CheckVal (11, $000ab0dc)
+    CheckVal (12, $fff00000)
+    CheckVal (13, $0006a09e)
+    CheckVal (14, $fff00000)
+    CheckVal (15, $00032ebf)
+    CheckVal (16, $fff00000)
+    CheckVal (17, $00000000)
+    CheckVal (18, $fff00000)
+    CheckVal (19, $fffcd141)
+    CheckVal (20, $fff00000)
+    CheckVal (21, $fff95f62)
+    CheckVal (22, $fff00000)
+    CheckVal (23, $fff54f24)
+    CheckVal (24, $fff00000)
+    CheckVal (25, $fff00000)
+    CheckVal (26, $fff00000)
+    CheckVal (27, $ffe80de7)
+    CheckVal (28, $fff00000)
+    CheckVal (29, $ffd95f62)
+    CheckVal (30, $fff00000)
+    CheckVal (31, $ffaf9004)
+    Passed
+
+
+PUB  TestInv | i
+    StartTest (string ("TestInv"))
+    RunFFT (FFT_RAW_INV)
+    i := 0
+    repeat until i => 2 * NN
+    	CheckValSlack (i, i << (FIXFRACT - N))
+	CheckValSlack (i+1, 0)
+        i += 2
+    Passed
+
+PUB  Test8
+    StartTest (string ("Test8"))
+    
+    scratch[0] := $f11dbf10
+    scratch[1] := $026f16e5
+    scratch[2] := $0033e698
+    scratch[3] := $039edde0
+    scratch[4] := $f556ca73
+    scratch[5] := $f8469742
+    scratch[6] := $03db37ea
+    scratch[7] := $f8ae8a1a
+    scratch[8] := $fdd69584
+    scratch[9] := $f7801034
+    scratch[10] := $fcfbcaf3
+    scratch[11] := $002b8d57
+    scratch[12] := $041f7b89
+    scratch[13] := $fea19efc
+    scratch[14] := $0254c03b
+    scratch[15] := $f61e23bf
+    scratch[16] := $fdfa39d8
+    scratch[17] := $023fb035
+    scratch[18] := $fb83da05
+    scratch[19] := $fff88051
+    scratch[20] := $fa6136f2
+    scratch[21] := $ff6bee76
+    scratch[22] := $f44dd282
+    scratch[23] := $09c24f9e
+    scratch[24] := $fe6c2f86
+    scratch[25] := $ff34020c
+    scratch[26] := $0ec12cd8
+    scratch[27] := $008fef01
+    scratch[28] := $086c2f9b
+    scratch[29] := $fff85734
+    scratch[30] := $fbfa3020
+    scratch[31] := $0e92ed59
+
+    RunFFT (FFT_SCALED)
+
+    CheckVal (0, $fe58b1db)
+    CheckVal (1, $ffd241aa)
+    CheckVal (2, $fd806055)
+    CheckVal (3, $014ac80c)
+    CheckVal (4, $fe560c0a)
+    CheckVal (5, $03e183f1)
+    CheckVal (6, $fc9678de)
+    CheckVal (7, $0196eb08)
+    CheckVal (8, $fec48012)
+    CheckVal (9, $ff4199fd)
+    CheckVal (10, $004d8af5)
+    CheckVal (11, $fd90ce59)
+    CheckVal (12, $00125cc3)
+    CheckVal (13, $ffd36fd5)
+    CheckVal (14, $fdd00963)
+    CheckVal (15, $fdf2201a)
+    CheckVal (16, $fe9b1b75)
+    CheckVal (17, $fe63a8fe)
+    CheckVal (18, $ff1cd119)
+    CheckVal (19, $ff1dcaae)
+    CheckVal (20, $ff27ac63)
+    CheckVal (21, $017847e2)
+    CheckVal (22, $02153ec9)
+    CheckVal (23, $ffb30dfb)
+    CheckVal (24, $ff1e621b)
+    CheckVal (25, $016131b1)
+    CheckVal (26, $fdf12876)
+    CheckVal (27, $0237df1a)
+    CheckVal (28, $ff2537c8)
+    CheckVal (29, $fe51718f)
+    CheckVal (30, $023a1cba)
+    CheckVal (31, $00aa5a0e)
+    Passed
+
+PUB  Test8Inv
+    StartTest (string ("Test8Inv"))
+
+    RunFFT (FFT_RAW_INV)
+    CheckValSlack (0, $f11dbf10)
+    CheckValSlack (1, $026f16e5)
+    CheckValSlack (2, $0033e698)
+    CheckValSlack (3, $039edde0)
+    CheckValSlack (4, $f556ca73)
+    CheckValSlack (5, $f8469742)
+    CheckValSlack (6, $03db37ea)
+    CheckValSlack (7, $f8ae8a1a)
+    CheckValSlack (8, $fdd69584)
+    CheckValSlack (9, $f7801034)
+    CheckValSlack (10, $fcfbcaf3)
+    CheckValSlack (11, $002b8d57)
+    CheckValSlack (12, $041f7b89)
+    CheckValSlack (13, $fea19efc)
+    CheckValSlack (14, $0254c03b)
+    CheckValSlack (15, $f61e23bf)
+    CheckValSlack (16, $fdfa39d8)
+    CheckValSlack (17, $023fb035)
+    CheckValSlack (18, $fb83da05)
+    CheckValSlack (19, $fff88051)
+    CheckValSlack (20, $fa6136f2)
+    CheckValSlack (21, $ff6bee76)
+    CheckValSlack (22, $f44dd282)
+    CheckValSlack (23, $09c24f9e)
+    CheckValSlack (24, $fe6c2f86)
+    CheckValSlack (25, $ff34020c)
+    CheckValSlack (26, $0ec12cd8)
+    CheckValSlack (27, $008fef01)
+    CheckValSlack (28, $086c2f9b)
+    CheckValSlack (29, $fff85734)
+    CheckValSlack (30, $fbfa3020)
+    CheckValSlack (31, $0e92ed59)
+    Passed
+
 DAT
     ' params for FFT
 

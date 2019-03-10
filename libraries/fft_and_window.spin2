@@ -74,8 +74,8 @@ log   means take log of mag or mag^2, error if neither specified   - NOTE NOT YE
 mag   means take mag/phase of entries                              - NOTE NOT YET IMPLEMENTED
 mag^2 means take 64 bit magnitude squared of entries, times 2  (error to specify both mag and mag^2)
 go   only needs to be set if all other flags zero, to distinguish from idle state, no harm to always use this
-inv   means do inverse FFT, none of log, whole, mag and mag^2 are compatible with this - NOTE NOT YET IMPLEMENTED?
-sym   means make frequency bins conjugate symmetrical for negative frequencies (only valid for inv)
+inv   means do inverse FFT, none of log, whole, mag and mag^2 are compatible with this
+sym   means make frequency bins conjugate symmetrical for negative frequencies (only valid for inv) - NOT YET IMPL
 win   means apply the window vector (only valid for forwards)
 The special value of %11111111 puts the cog into a sleep/wake cycle to save power, so that it only checks
 the operation byte every 1000 cycles or so.

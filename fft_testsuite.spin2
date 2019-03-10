@@ -32,6 +32,7 @@ VAR
     long  testname
     long  errcount
     long  scratch[2*MAXNN]
+    long  scratch2[2*MAXNN]
 
 
 PUB demo
@@ -45,32 +46,50 @@ PUB demo
     ser.tx(10)
 
     setN(4)
-    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | fft#INP_COMPLEX | 8))  ' complex flag set
+    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8)  ' complex flag set
     Test0
     Test2_2
     KillFFT
 
     setN(4)
-    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | 8))   ' real
+    InitFFT (N, FIXINT, fft#INP_SHARED | 8)   ' real
     Test1
     Test2
     KillFFT
 
+    InitFFT (N, FIXINT, 8)   ' real
+    Test1_unshared
+    KillFFT
+
+
+    InitFFT (N, FIXINT, 4)   ' real, packed
+    Test1_unshared_packed
+    KillFFT
+
+    InitFFT (N, FIXINT, 2)   ' real, packed
+    Test1_unshared_packed16
+    KillFFT
+
     setN(6)
     
-    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | 8))
+    InitFFT (N, FIXINT, fft#INP_SHARED | 8)
     Test3
     Test5
     KillFFT
 
-    InitFFT (N, FIXINT, @scratch, (fft#INP_SHARED | fft#INP_COMPLEX | 8))
+    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8)
     Test4
     KillFFT
 
     setN(5)
 
-    InitFFT (N, 11, @scratch, (fft#INP_SHARED | 8))
+    InitFFT (N, 11, fft#INP_SHARED | 8)
     Test6
+    KillFFT
+
+    setN(6)
+    InitFFT (N, FIXINT, 4)
+    Test7
     KillFFT
 
     ser.dec (FFT_timing)
@@ -97,6 +116,20 @@ PUB  CheckVal (offset, value)
         ser.tx(13)
         ser.tx(10)
 
+PUB  CheckVal2 (offset, value)
+    if abs (scratch2[offset] - value) > TOLERANCE
+        errcount += 1
+        ser.str (string ("Test fail "))
+        ser.str (testname)
+        ser.str (string ("   expected "))
+        ser.hex (value, 8)
+        ser.str (string (" at "))
+        ser.dec (offset)
+        ser.str (string (" but saw "))
+        ser.hex (scratch2[offset], 8)
+        ser.tx(13)
+        ser.tx(10)
+
 PUB  Passed
     ser.str (testname)
     ser.str (string (" done with "))
@@ -114,7 +147,7 @@ PUB  StartTest(name)
     ser.tx(10)
 
 
-PUB  InitFFT (N, fix, arr, inp_flags)
+PUB  InitFFT (N, fix, inp_flags)
     byte[@FFT_operation][0]  := 0
     byte[@FFT_operation][1]  := fix  '    FFT_fixint := FIXINT
     byte[@FFT_operation][2]  := fix  '    FFT_input_fixint := FIXINT
@@ -122,8 +155,11 @@ PUB  InitFFT (N, fix, arr, inp_flags)
     byte[@FFT_N][0]  := N
     byte[@FFT_N][1]  := fix   ' magsquared fixint
     byte[@FFT_N][2]  := 0
-    FFT_input_buf := arr
-    FFT_work_buf  := arr
+    FFT_input_buf := @scratch
+    if (inp_flags & fft#INP_SHARED) <> 0
+        FFT_work_buf := @scratch
+    else
+        FFT_work_buf  := @scratch2
     FFT_window_buf := 0
     fft_cog := fft.start (@FFT_operation)
     pausems(2)
@@ -145,20 +181,7 @@ PUB  Test1 | i
         i += 2
 
     RunFFT (FFT_WITH_MAGSQR)
-{
-    ser.str(string("res"))
-    ser.tx(13)
-    ser.tx(10)
-    
-    i := 0
-    repeat until i => 32
-    	ser.hex (scratch [i], 8)
-	ser.tx(32)
-    	ser.hex (scratch [i+1], 8)
-	ser.tx(13)
-	ser.tx(10)
-    	i += 2
-}
+
     CheckVal (0, $01c20000)
     CheckVal (2, $00348c5c)
     CheckVal (4, $000da828)
@@ -168,6 +191,96 @@ PUB  Test1 | i
     CheckVal (12, $000257d8)
     CheckVal (14, $00021442)
     CheckVal (16, $00020000)
+    Passed
+
+PUB  Test1_unshared | i
+    StartTest (string ("Test one unshared"))
+    i := 0
+    repeat until i => 2 * NN
+        scratch[i] := i << (FIXFRACT - N)
+	scratch[i+1] := 0
+        i += 2
+
+    RunFFT (FFT_WITH_MAGSQR)
+
+    CheckVal2 (0, $01c20000)
+    CheckVal2 (2, $00348c5c)
+    CheckVal2 (4, $000da828)
+    CheckVal2 (6, $00067acb)
+    CheckVal2 (8, $00040000)
+    CheckVal2 (10, $0002e497)
+    CheckVal2 (12, $000257d8)
+    CheckVal2 (14, $00021442)
+    CheckVal2 (16, $00020000)
+    Passed
+
+PUB  Test1_unshared_packed | i
+    StartTest (string ("Test one unshared packed"))
+    i := 0
+    repeat until i =>  NN
+        scratch[i] := i << (FIXFRACT - N + 1)
+	i += 1
+
+    RunFFT (FFT_WITH_MAGSQR)
+
+    CheckVal2 (0, $01c20000)
+    CheckVal2 (2, $00348c5c)
+    CheckVal2 (4, $000da828)
+    CheckVal2 (6, $00067acb)
+    CheckVal2 (8, $00040000)
+    CheckVal2 (10, $0002e497)
+    CheckVal2 (12, $000257d8)
+    CheckVal2 (14, $00021442)
+    CheckVal2 (16, $00020000)
+    Passed
+
+PUB  Test1_unshared_packed16 | i
+    StartTest (string ("Test one unshared packed16"))
+    i := 0
+    repeat until i =>  NN
+        word[@scratch][i] := i << (FIXFRACT - N + 1) >> 16
+	i += 1
+{
+    i := 0
+    repeat until i => NN
+    	ser.hex (word[@scratch] [i], 4)
+	ser.tx(13)
+	ser.tx(10)
+    	i += 1
+}
+    RunFFT (FFT_WITH_MAGSQR)
+{
+    i := 0
+    repeat until i => 2 * NN
+    	ser.hex (scratch2 [i], 8)
+	ser.tx(32)
+    	ser.hex (scratch2 [i+1], 8)
+	ser.tx(13)
+	ser.tx(10)
+    	i += 2
+}
+{  
+    ser.str(string("res"))
+    ser.tx(13)
+    ser.tx(10)
+    i := 0
+    repeat until i => 32
+    	ser.hex (scratch2 [i], 8)
+	ser.tx(32)
+    	ser.hex (scratch2 [i+1], 8)
+	ser.tx(13)
+	ser.tx(10)
+    	i += 2
+}
+    CheckVal2 (0, $01c20000)
+    CheckVal2 (2, $00348c5c)
+    CheckVal2 (4, $000da828)
+    CheckVal2 (6, $00067acb)
+    CheckVal2 (8, $00040000)
+    CheckVal2 (10, $0002e497)
+    CheckVal2 (12, $000257d8)
+    CheckVal2 (14, $00021442)
+    CheckVal2 (16, $00020000)
     Passed
 
 PUB  Test0 | i
@@ -880,6 +993,107 @@ PUB  Test6
     CheckVal (33, $00000000)
     Passed
 
+PUB  Test7
+    StartTest (string ("Test seven, gaussian"))
+    scratch[0] := $fd7ac3fc
+    scratch[1] := $00bdd50a
+    scratch[2] := $ffcba55c
+    scratch[3] := $004cd080
+    scratch[4] := $fd4ca845
+    scratch[5] := $ff784dd1
+    scratch[6] := $01be1cf1
+    scratch[7] := $ff7a6d25
+    scratch[8] := $fff46d9a
+    scratch[9] := $011b9860
+    scratch[10] := $00221d14
+    scratch[11] := $019a74ca
+    scratch[12] := $ff267f8f
+    scratch[13] := $0182f08d
+    scratch[14] := $ff25da38
+    scratch[15] := $0032b055
+    scratch[16] := $ff6975b2
+    scratch[17] := $0170f6bc
+    scratch[18] := $ff72b2cd
+    scratch[19] := $ff8f6c45
+    scratch[20] := $01aa548a
+    scratch[21] := $0062d0a5
+    scratch[22] := $fed2544d
+    scratch[23] := $ffa09196
+    scratch[24] := $01330882
+    scratch[25] := $ffb72d9e
+    scratch[26] := $000fcfa5
+    scratch[27] := $ffd11d9d
+    scratch[28] := $ff11d575
+    scratch[29] := $017cf22d
+    scratch[30] := $fff141ae
+    scratch[31] := $fe421f7f
+    scratch[32] := $feb8efd7
+    scratch[33] := $ff64ceb6
+    scratch[34] := $ff93776c
+    scratch[35] := $00bed8ca
+    scratch[36] := $febcef3c
+    scratch[37] := $fd8efa9a
+    scratch[38] := $ff6078ab
+    scratch[39] := $ff773081
+    scratch[40] := $01571ff6
+    scratch[41] := $ffa0d7a8
+    scratch[42] := $ff9f1e71
+    scratch[43] := $fe5b4b57
+    scratch[44] := $002f3100
+    scratch[45] := $ffc475e9
+    scratch[46] := $00e2a37e
+    scratch[47] := $ff9a76ac
+    scratch[48] := $02a19111
+    scratch[49] := $0050b32b
+    scratch[50] := $00a750f7
+    scratch[51] := $01c821c6
+    scratch[52] := $fe5a121f
+    scratch[53] := $00f36f9b
+    scratch[54] := $00730bc3
+    scratch[55] := $019d11d7
+    scratch[56] := $feb66be7
+    scratch[57] := $003f7064
+    scratch[58] := $001a1e2e
+    scratch[59] := $0047989a
+    scratch[60] := $001b1aa1
+    scratch[61] := $0148b0e9
+    scratch[62] := $fef11b1f
+    scratch[63] := $026d4c7b
+    RunFFT (FFT_WITH_MAGSQR)
+    CheckVal2 (0, $0000168c)
+    CheckVal2 (2, $0009a6c6)
+    CheckVal2 (4, $00182609)
+    CheckVal2 (6, $0002eed7)
+    CheckVal2 (8, $000284ea)
+    CheckVal2 (10, $00068f26)
+    CheckVal2 (12, $000630d4)
+    CheckVal2 (14, $000156e9)
+    CheckVal2 (16, $00020813)
+    CheckVal2 (18, $0007cd3b)
+    CheckVal2 (20, $0006539f)
+    CheckVal2 (22, $0004724e)
+    CheckVal2 (24, $000c6670)
+    CheckVal2 (26, $0013dab1)
+    CheckVal2 (28, $000a81ef)
+    CheckVal2 (30, $00031262)
+    CheckVal2 (32, $0003303d)
+    CheckVal2 (34, $00171cb5)
+    CheckVal2 (36, $0009eae6)
+    CheckVal2 (38, $0004a92d)
+    CheckVal2 (40, $00039008)
+    CheckVal2 (42, $001f34ed)
+    CheckVal2 (44, $0003efa7)
+    CheckVal2 (46, $0002470c)
+    CheckVal2 (48, $0004bc18)
+    CheckVal2 (50, $0004a777)
+    CheckVal2 (52, $000e8334)
+    CheckVal2 (54, $00183847)
+    CheckVal2 (56, $0009bd81)
+    CheckVal2 (58, $000e8d2d)
+    CheckVal2 (60, $000bf968)
+    CheckVal2 (62, $00267c8f)
+    CheckVal2 (64, $001dab32)
+    Passed
 DAT
     ' params for FFT
 

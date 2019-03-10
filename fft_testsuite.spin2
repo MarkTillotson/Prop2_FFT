@@ -35,6 +35,7 @@ VAR
     long  errcount
     long  scratch[2*MAXNN]
     long  scratch2[2*MAXNN]
+    long  window[MAXNN]
 
 
 PUB demo
@@ -48,57 +49,88 @@ PUB demo
     ser.tx(10)
 
     setN(4)
-    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8)  ' complex flag set
+    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8, 0)  ' complex flag set
     Test0
     Test2_2
     KillFFT
 
     setN(4)
-    InitFFT (N, FIXINT, fft#INP_SHARED | 8)   ' real
+    InitFFT (N, FIXINT, fft#INP_SHARED | 8, 0)   ' real
     Test1
     Test2
     KillFFT
 
-    InitFFT (N, FIXINT, 8)   ' real
+    InitFFT (N, FIXINT, 8, 0)   ' real
     Test1_unshared
     KillFFT
 
 
-    InitFFT (N, FIXINT, 4)   ' real, packed
+    InitFFT (N, FIXINT, 4, 0)   ' real, packed
     Test1_unshared_packed
     KillFFT
 
-    InitFFT (N, FIXINT, 2)   ' real, packed
+    InitFFT (N, FIXINT, 2, 0)   ' real, packed
     Test1_unshared_packed16
     KillFFT
 
     setN(6)
     
-    InitFFT (N, FIXINT, fft#INP_SHARED | 8)
+    InitFFT (N, FIXINT, fft#INP_SHARED | 8, 0)
     Test3
     Test5
     KillFFT
 
-    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8)
+    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8, 0)
     Test4
     KillFFT
 
     setN(5)
 
-    InitFFT (N, 11, fft#INP_SHARED | 8)
+    InitFFT (N, 11, fft#INP_SHARED | 8, 0)
     Test6
     KillFFT
 
     setN(6)
-    InitFFT (N, FIXINT, 4)
+    InitFFT (N, FIXINT, 4, 0)
     Test7
     KillFFT
 
     setN(4)
-    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8)
+    InitFFT (N, FIXINT, fft#INP_SHARED | fft#INP_COMPLEX | 8, 0)
     TestForw
     TestInv
     KillFFT
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#HANN_WINDOW)
+    TestWindowHann
+    KillFFT
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#HAMMING_WINDOW)
+    TestWindowHamming
+    KillFFT
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#BLACKMAN_HARRIS_WINDOW)
+    TestWindowBlackHar
+    KillFFT
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#NUTTALL4C_WINDOW)
+    TestWindowNuttall
+    KillFFT
+
+    setN(5)
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#SFT5M_WINDOW)
+    TestWindowSFT5M
+    KillFFT
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#HFT95_WINDOW)
+    TestWindowHFT95
+    KillFFT
+
+    InitFFT (N, FIXINT, fft#INP_SHARED | 4, fft#HFT144D_WINDOW)
+    TestWindowHFT144D
+    KillFFT
+
 
     ser.dec (FFT_timing)
     ser.str (string (" clks"))
@@ -121,6 +153,20 @@ PUB  CheckVal (offset, value)
         ser.dec (offset)
         ser.str (string (" but saw "))
         ser.hex (scratch[offset], 8)
+        ser.tx(13)
+        ser.tx(10)
+
+PUB  CheckValWind (offset, value)
+    if abs (window[offset] - value) > 2*TOLERANCE
+        errcount += 1
+        ser.str (string ("Test fail "))
+        ser.str (testname)
+        ser.str (string ("   window val expected "))
+        ser.hex (value, 8)
+        ser.str (string (" at "))
+        ser.dec (offset)
+        ser.str (string (" but saw "))
+        ser.hex (window[offset], 8)
         ser.tx(13)
         ser.tx(10)
 
@@ -169,20 +215,20 @@ PUB  StartTest(name)
     ser.tx(10)
 
 
-PUB  InitFFT (N, fix, inp_flags)
+PUB  InitFFT (N, fix, inp_flags, winid)
     byte[@FFT_operation][0]  := 0
     byte[@FFT_operation][1]  := fix  '    FFT_fixint := FIXINT
     byte[@FFT_operation][2]  := fix  '    FFT_input_fixint := FIXINT
     byte[@FFT_operation][3]  := inp_flags '    FFT_input_flags
     byte[@FFT_N][0]  := N
     byte[@FFT_N][1]  := fix   ' magsquared fixint
-    byte[@FFT_N][2]  := 0
+    byte[@FFT_N][2]  := winid
     FFT_input_buf := @scratch
     if (inp_flags & fft#INP_SHARED) <> 0
         FFT_work_buf := @scratch
     else
         FFT_work_buf  := @scratch2
-    FFT_window_buf := 0
+    FFT_window_buf := @window
     fft_cog := fft.start (@FFT_operation)
     pausems(2)
 
@@ -1281,6 +1327,124 @@ PUB  Test8Inv
     CheckValSlack (30, $fbfa3020)
     CheckValSlack (31, $0e92ed59)
     Passed
+
+
+PUB  TestWindowHann
+    StartTest (string ("TestWindowHann"))
+
+    CheckValWind (0, $0004eb42)
+    CheckValWind (1, $002b24cf)
+    CheckValWind (2, $0071c626)
+    CheckValWind (3, $00ce0e90)
+    CheckValWind (4, $0131f170)
+    CheckValWind (5, $018e39da)
+    CheckValWind (6, $01d4db31)
+    CheckValWind (7, $01fb14be)
+    Passed
+
+PUB  TestWindowHamming
+    StartTest (string ("TestWindowHamming"))
+
+    CheckValWind (0, $002a1dbd)
+    CheckValWind (1, $004aad94)
+    CheckValWind (2, $0086d834)
+    CheckValWind (3, $00d574b3)
+    CheckValWind (4, $012a8b4d)
+    CheckValWind (5, $017927cc)
+    CheckValWind (6, $01b5526c)
+    CheckValWind (7, $01d5e243)
+    Passed
+
+PUB  TestWindowBlackHar
+    StartTest (string ("TestWindowBlackHar"))
+
+    CheckValWind (0, $000077ed)
+    CheckValWind (1, $00067d9f)
+    CheckValWind (2, $00200317)
+    CheckValWind (3, $0063830c)
+    CheckValWind (4, $00e23469)
+    CheckValWind (5, $0192d3ab)
+    CheckValWind (6, $0246ab9e)
+    CheckValWind (7, $02b9d09e)
+    Passed
+
+PUB  TestWindowNuttall
+    StartTest (string ("TestWindowNuttall"))
+
+    CheckValWind (0, $0000d0a6)
+    CheckValWind (1, $0007e218)
+    CheckValWind (2, $00232f73)
+    CheckValWind (3, $00681ba4)
+    CheckValWind (4, $00e62c79)
+    CheckValWind (5, $01933389)
+    CheckValWind (6, $0241baec)
+    CheckValWind (7, $02b0e73d)
+    Passed
+
+PUB  TestWindowSFT5M
+    StartTest (string ("TestWindowSFT5M"))
+
+    CheckValWind (0, $ffffd294)
+    CheckValWind (1, $fffe0d64)
+    CheckValWind (2, $fff8cf1e)
+    CheckValWind (3, $ffed9bf1)
+    CheckValWind (4, $ffdb05e2)
+    CheckValWind (5, $ffc3243a)
+    CheckValWind (6, $ffadd99a)
+    CheckValWind (7, $ffa9995b)
+    CheckValWind (8, $ffc967b7)
+    CheckValWind (9, $001fa9a5)
+    CheckValWind (10, $00b6d335)
+    CheckValWind (11, $018a76f7)
+    CheckValWind (12, $0283d3b5)
+    CheckValWind (13, $037c35c9)
+    CheckValWind (14, $04457307)
+    CheckValWind (15, $04b63fda)
+    Passed
+
+PUB  TestWindowHFT95
+    StartTest (string ("TestWindowHFT95"))
+
+    CheckValWind (0, $ffff535d)
+    CheckValWind (1, $fffcd789)
+    CheckValWind (2, $fff65f0d)
+    CheckValWind (3, $ffe9e42d)
+    CheckValWind (4, $ffd6b4d3)
+    CheckValWind (5, $ffbfbdc1)
+    CheckValWind (6, $ffad6eaf)
+    CheckValWind (7, $ffae0d16)
+    CheckValWind (8, $ffd374a9)
+    CheckValWind (9, $002e167f)
+    CheckValWind (10, $00c65092)
+    CheckValWind (11, $01966714)
+    CheckValWind (12, $0287d32f)
+    CheckValWind (13, $0375d4d1)
+    CheckValWind (14, $04356117)
+    CheckValWind (15, $04a057a1)
+
+    Passed
+
+PUB  TestWindowHFT144D
+    StartTest (string ("TestWindowHFT144D"))
+
+    CheckValWind (0, $fffffed7)
+    CheckValWind (1, $ffffe576)
+    CheckValWind (2, $ffff3f3c)
+    CheckValWind (3, $fffcaf14)
+    CheckValWind (4, $fff57b4e)
+    CheckValWind (5, $ffe62299)
+    CheckValWind (6, $ffcd2492)
+    CheckValWind (7, $ffb01eb8)
+    CheckValWind (8, $ffa0fcde)
+    CheckValWind (9, $ffbea3f1)
+    CheckValWind (10, $002caeaa)
+    CheckValWind (11, $01022533)
+    CheckValWind (12, $0236096b)
+    CheckValWind (13, $03957017)
+    CheckValWind (14, $04ccd172)
+    CheckValWind (15, $05848c93)
+    Passed
+
 
 DAT
     ' params for FFT

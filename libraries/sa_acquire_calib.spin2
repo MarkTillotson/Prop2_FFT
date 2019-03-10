@@ -1,0 +1,243 @@
+{ sa_acquire_calib.spin2 
+  generate calibration signal normalized to 1 unit rms
+}
+
+CON
+
+{ params
+N		long
+fixint		long
+buffer		long
+pin		long
+cycles		long
+ready_flag	long
+}
+
+    SLEEP = $FF
+
+PUB start(params)
+    cognew (@acquire_entry, params)
+
+PUB  module_name
+    result := string ("sa_acquire_calib")
+
+
+DAT
+		ORG	0
+
+acquire_entry	rdlong  N, PTRA++
+		rdlong	fixint, PTRA++
+		rdlong	t, PTRA++
+		rdlong	adc_pin, PTRA++
+		rdlong	adc_cycles, PTRA++
+		mov	ready_addr, PTRA
+
+		mov	PTRA, t
+		decod   size, N
+		mov	fixfract, #32
+		sub	fixfract, fixint
+		decod	one_value, fixfract
+
+		mov	t, one_value
+		shl	t, #1           ' 2.0
+		shr	t, fixint       ' fixnum correction for 64 bit value
+		QSQRT	#0, t
+		GETQX	amplitude
+		mov	amplitude2, amplitude
+		shr	amplitude2, #5  ' 1/32 times the amplitude  -30.1dB
+		mov	amplitude3, amplitude2
+		shr	amplitude3, #5  ' 1/32 times the amplitude  -60.2dB
+		mov	amplitude4, amplitude3
+		shr	amplitude4, #5  ' 1/32 times the amplitude  -90.3dB
+		mov	amplitude5, amplitude4
+		shr	amplitude5, #5  ' 1/32 times the amplitude  -120.4dB
+		mov	amplitude6, amplitude5
+		shr	amplitude6, #5  ' 1/32 times the amplitude  -150.5dB
+
+		
+.loop		rdlong	t, ready_addr
+		cmp	t, #0  wz
+	if_z	jmp	#.loop
+
+		cmp	t, #SLEEP  wz
+	if_z	waitx	##1024
+	if_z	jmp	#.loop
+
+		call	#acquire	' read ADC samples
+		'call	#remove_dc	' subtract the mean - not needed for a calibration signal
+
+		wrlong	#0, ready_addr
+		jmp	#.loop
+
+
+
+{ generic scan of array }
+
+iterate	        cmp	iter_action, #0  wz
+	if_z	jmp	iterate_ret
+	
+		mov	count, size
+		cmp	half, #0  wz
+	if_nz	shr	count, #1
+	if_nz	add	count, #1
+		mov	PTRB, PTRA
+.loop
+	'	rdlong	x, PTRB++
+	'	rdlong	y, PTRB--
+		call	iter_action
+		wrlong	x, PTRB++
+		wrlong	y, PTRB++
+		djnz	count, #.loop
+iterate_ret	ret
+
+iter_action	long	0
+half		long	0
+
+
+
+{ multiply fixpoint }
+mult		QMUL	a, b
+		testb	a, #31  wc
+		testb	b, #31  wz
+		GETQY   val
+		GETQX   lo
+	if_c	sub	val, b
+	if_z	sub	val, a
+		shl	val, fixint
+		shr	lo, fixfract
+		or	val, lo
+		ret
+
+
+
+{ faking acquisition, two tone }
+
+acq_sample      QROTATE amplitude, angle
+		add	angle, freq
+		add	freq, #7
+		nop
+		QROTATE amplitude2, angle2
+		add	angle2, freq2
+		nop
+		nop
+		QROTATE amplitude3, angle3
+		add	angle3, freq3
+		nop
+		nop
+		QROTATE amplitude4, angle4
+		add	angle4, freq4
+		nop
+		nop
+		QROTATE amplitude5, angle5
+		add	angle5, freq5
+		nop
+		nop
+		QROTATE amplitude6, angle6
+		add	angle6, freq6
+		nop
+		GETQX   x
+		'sub	freq2, #240
+		nop
+		nop
+		GETQX   t
+		add	x, t
+		nop
+		nop
+		GETQX   t
+		add	x, t
+		nop
+		nop
+		GETQX   t
+		add	x, t
+		nop
+		nop
+		GETQX   t
+		add	x, t
+		nop
+		nop
+		GETQX   t
+		add	x, t
+		'waitct1
+		'addct1  time, adc_cycles
+		mov	y, #0
+		ret
+
+
+
+acquire		'getct   time
+		'addct1  time, adc_cycles
+
+		mov	iter_action, #acq_sample
+		jmp	#iterate
+
+
+
+{ calc mean and subtract from samples }
+
+remove_dc
+		mov	hi, #0
+		mov	lo, #0
+
+		mov	iter_action, #remove1
+		call	#iterate
+
+		mov	t, #32
+		sub	t, N
+		shl	hi, t
+		shr	lo, N
+		or	hi, lo
+
+		mov	iter_action, #remove2
+		jmp	#iterate
+
+
+remove1		testb   x, #31  wz
+		add	lo, x  wc
+		addx	hi, #0
+	if_z	sub	hi, #1
+		ret
+
+remove2		sub	x, hi		' subtract DC offset
+		ret
+
+freq		long	$392F47AA
+freq2		long	$3310E34D
+freq3		long	$2C11BBBB
+freq4		long	$23765326
+freq5		long	$1E11BBBB
+freq6		long	$181BBB33
+
+angle		long	0
+angle2		long	0
+angle3		long	0
+angle4		long	0
+angle5		long	0
+angle6		long	0
+
+N		res     1
+size		res     1
+fixint		res	1
+fixfract	res	1
+adc_pin		res	1
+adc_cycles	res     1
+ready_addr	res	1
+count		res	1
+time		res	1
+val		res	1
+one_value	res	1
+amplitude	res	1
+amplitude2	res	1
+amplitude3	res	1
+amplitude4	res	1
+amplitude5	res	1
+amplitude6	res	1
+a		res	1
+b		res	1
+t		res	1
+x		res	1
+y		res	1
+hi		res	1
+lo		res	1
+
+
+		FIT	$1EC

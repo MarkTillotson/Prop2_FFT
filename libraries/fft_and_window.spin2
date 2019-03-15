@@ -191,7 +191,7 @@ PUB start(params)
 
 
 PUB  module_name
-    result := string ("sa_fft7")
+    result := string ("fft_and_window")
 
 
 PUB  window_name(win_id)

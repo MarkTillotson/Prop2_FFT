@@ -23,7 +23,7 @@ CON
     DAC_TESTPIN = 41
     ADC_PIN = 40 ' 40
     ADC_CYCLES =  625 ' 3333  ' about 48kSPS
-    ADC_READING_REPEAT_SHIFT = 2
+    ADC_READING_REPEAT_SHIFT = 2'7
 
     DAC_PIN = 44
     DISPLAY_CYCLES = 1600
@@ -36,10 +36,12 @@ CON
     maxfix = 1<<(FIXINT-1)
     minfix = -maxfix
 
+    MAX_PEAKS = 32
+
     'WINDOW_SPEC = fft#RECT_WINDOW
-    WINDOW_SPEC = fft#HANN_WINDOW
+    'WINDOW_SPEC = fft#HANN_WINDOW
     'WINDOW_SPEC = fft#HAMMING_WINDOW
-    'WINDOW_SPEC = fft#HFT95_WINDOW
+    WINDOW_SPEC = fft#HFT95_WINDOW
     'WINDOW_SPEC = fft#HFT116D_WINDOW
     'WINDOW_SPEC = fft#HFT144D_WINDOW
 
@@ -83,7 +85,9 @@ VAR
     long  OUT_cycles
     long  OUT_ready_flag
 
-    long  scratch[2*NN + NN/2 + 2*(NN/2+1)]  ' hold NN complex fix8.24 values
+    long  peaks_list [2 * MAX_PEAKS]
+
+    long  scratch [2*NN + NN/2 + 2*(NN/2+1)]  ' hold NN complex fix8.24 values
 
 
 PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, row
@@ -186,6 +190,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, ro
     FFT_input_buffer  := @scratch
     FFT_work_buffer   := @scratch
     FFT_window_buffer := @scratch + (8 << N)
+    peak_table := @peaks_list
     fft_start := @FFT_operation
 
     fft.start (@FFT_operation)
@@ -215,6 +220,30 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, ro
     
         ser.dec (FFT_timing)
         ser.str (string (" clks"))
+        ser.tx(13)
+        ser.tx(10)
+
+	ser.str (string("peaks "))
+	ser.dec (peaks_list[0])
+        ser.tx(32)
+	ser.hex (peaks_list[1], 4)
+        ser.tx(32)
+	ser.hex (peaks_list[2], 8)
+        ser.tx(32)
+        ser.tx(32)
+	ser.hex (peaks_list[3], 4)
+        ser.tx(32)
+	ser.hex (peaks_list[4], 8)
+        ser.tx(32)
+        ser.tx(32)
+	ser.hex (peaks_list[5], 4)
+        ser.tx(32)
+	ser.hex (peaks_list[6], 8)
+        ser.tx(32)
+        ser.tx(32)
+	ser.hex (peaks_list[7], 4)
+        ser.tx(32)
+	ser.hex (peaks_list[8], 8)
         ser.tx(13)
         ser.tx(10)
 
@@ -312,6 +341,7 @@ entry           mov     base, PTRA
                 mov     half, #1
                 call    #average        ' sum into accum
                 call    #logconvert     ' replace with log(x)
+		call	#peak_find
                '' call    #add_graticule
 
              ' mov     offset, #0
@@ -577,6 +607,17 @@ vidram		long	0
 vga_out		long	0
 
 size            long    NN
+
+peak_big_diff	long	$18000000
+peak_small_diff	long	$04000000
+peak_table	long	0   ' needs setting up
+peak_i		res	1
+peak_curr	res	1
+peak_prev	res	1
+peak_state	res	1
+peak_diff	res	1
+peak_count	res	1
+
 count           res     1
 time            res     1
 val             res     1
@@ -633,6 +674,7 @@ output_N	long	0
 output_array	long	0
 output_stride	long	0
 output_vidptr	long	0
+
                 FIT     $1F0
 		
 {{ LUT code }}
@@ -667,6 +709,64 @@ avg             rdlong  hi, PTRB++
                 wrlong  hi, PTRB++
                 wrlong  lo, PTRB++
                 ret
+
+
+
+peak_find	call	#peak_find_init
+		mov	iter_action, ##peak_find_step
+		call	#iterate
+		wrlong	#0, PTRB[2]
+		wrlong	#0, PTRB[3]
+		mov	PTRB, peak_table
+		wrlong	peak_count, PTRB
+		ret
+
+peak_find_init	mov	PTRB, peak_table
+		sub	PTRB, #4
+		mov	peak_count, #0
+		mov	peak_i, #0
+		mov	peak_state, ##peakfind_idle
+		mov	PTRA, base
+		rdlong	peak_prev, PTRA
+		ret
+
+peak_find_step	mov	peak_curr, x  ' x is log scale, y is irrelevant
+		mov	peak_diff, peak_curr
+		sub	peak_diff, peak_prev
+		jmp	peak_state
+peakfind_idle
+		cmps	peak_diff, PEAK_BIG_DIFF  wcz
+	if_b	jmp	#peak_find_ret
+		cmp	peak_count, #MAX_PEAKS  wcz
+	if_ae	mov	peak_state, ##peakfind_full
+	if_ae	jmp	peak_state
+		add	peak_count, #1
+		add	PTRB, #8
+		mov	peak_state, ##peakfind_start
+peakfind_newmax
+		wrlong	peak_i, PTRB[0]
+		wrlong	peak_curr, PTRB[1]
+		jmp	#peak_find_ret
+
+peakfind_start
+		cmps	peak_diff, PEAK_SMALL_DIFF  wcz
+	if_b	mov	peak_state, ##peakfind_peak
+	if_b	jmp	peak_state
+		jmp	#peakfind_newmax
+		
+peakfind_peak	neg	peak_diff
+		cmps	peak_diff, PEAK_SMALL_DIFF  wcz
+	if_ae	mov	peak_state, ##peakfind_idle
+		rdlong	t, PTRB[1]
+		cmp	peak_curr, t  wcz
+	if_a	jmp	#peakfind_newmax
+peak_find_ret
+		mov	peak_prev, peak_curr
+		add	peak_i, #1
+		ret
+
+peakfind_full   ret
+
 
 zero		long	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 

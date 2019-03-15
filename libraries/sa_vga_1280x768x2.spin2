@@ -78,7 +78,7 @@ vback		call	#scanline
 		djnz	count, #vback
 
 
-		mov	stream_d, ##STREAM_MODE_D_RED
+		mov	stream_d, ##STREAM_MODE_D_BLUE
 		mov	lineptr, video_ptr   ' active video loop
 		mov	count, ##HEADER_LINES
 active1		call	#scanline
@@ -117,7 +117,7 @@ active2
 		WRPIN   #0, #RED_PIN_NUM   ' synchonous serial
 		dirh	#RED_PIN_NUM
 		
-		mov	stream_d, ##STREAM_MODE_D_BLUE
+		mov	stream_d, ##STREAM_MODE_D_RED
 		mov	count, ##TEXT_LINES
 active3		call	#scanline
 		add	lineptr, #XLONGS*4

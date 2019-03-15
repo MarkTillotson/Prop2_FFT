@@ -28,6 +28,10 @@ CON
     DAC_PIN = 44
     DISPLAY_CYCLES = 1600
 
+    SCR_COL_A = 15
+    SCR_COL_B = 44
+    SCR_COL_C = 54
+
     N = 11
     NN = 1 << N
 
@@ -57,7 +61,7 @@ CON
 OBJ
     ser: "SmartSerial.spin2"
     siggen: "sig_gen.spin2"
-    acq: "sa_acquire_ads8885.spin2"
+    acq: "sa_acquire_calib.spin2"
     fft: "fft_and_window.spin2"
     vga: "sa_vga_1280x768x2.spin2"
     out: "sa_scope_output.spin2"
@@ -65,6 +69,8 @@ OBJ
 
 
 VAR
+    long  sampling_rate
+
     long  window_mu2
     long  window_sig2
     long  sample_freq
@@ -90,7 +96,7 @@ VAR
     long  scratch [2*NN + NN/2 + 2*(NN/2+1)]  ' hold NN complex fix8.24 values
 
 
-PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, row
+PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row
     clkset (OSCMODE, FREQ)
     pausems (10)
     ser.start (63, 62, 0, BAUD)
@@ -124,13 +130,13 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, ro
         horizontal := sampling_rate << horizontal
 
     row := 0
-    wrstr (wrdec (10, row, sampling_rate), row, string (" samples/sec"))
-    wrstr (wrdec (40, row, 10), row, string (" dB/division"))
+    wrstr (wrdec (SCR_COL_A, row, sampling_rate), row, string (" samples/sec"))
+    wrstr (wrdec (SCR_COL_B, row, 10), row, string (" dB/division"))
     row += 1
-    wrstr (wrdec (40, row, horizontal), row, string (" Hz/division"))
+    wrstr (wrdec (SCR_COL_B, row, horizontal), row, string (" Hz/division"))
     row += 1
-    wrstr (wrstr (10, 2, fft.window_name (WINDOW_SPEC)), 2, string (" window"))
-    wrstr (wrdec (40, 2, NN), 2, string (" point FFT"))
+    wrstr (wrstr (SCR_COL_A, 2, fft.window_name (WINDOW_SPEC)), 2, string (" window"))
+    wrstr (wrdec (SCR_COL_B, 2, NN), 2, string (" point FFT"))
 
     row := 36
     wrstr (6, row, string("0 Hz"))
@@ -138,17 +144,17 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, ro
     wrstr (wrunit (68, row, sampling_rate>>1), row, string ("Hz"))
 
     row := 38
-    wrstr (wrdec (10, 38, 1 << AVERAGE_N), 38, string ("-fold spectral averaging"))
-    wrstr (wrdec (wrstr (wrdec (wrstr (50, 38, string("Fixpoint ")), 38, FIXINT), 38, string(".")), 38, FIXFRACT), 38, string (" arith"))
+    wrstr (wrdec (SCR_COL_A, row, 1 << AVERAGE_N), row, string ("-fold spectral averaging"))
+    wrstr (wrdec (wrstr (wrdec (wrstr (SCR_COL_C, row, string("Fixpoint ")), row, FIXINT), 38, string(".")), row, FIXFRACT), row, string (" arith"))
     row += 1
-    wrstr (wrdec (10, 39, 1 << ADC_READING_REPEAT_SHIFT), 39, string ("-fold input averaging"))
-    wrstr (wrdec (wrstr (wrdec (50, 39, minfix), 39, string(".0 <= val < ")), 39, maxfix), 39, string(".0"))
+    wrstr (wrdec (SCR_COL_A, row, 1 << ADC_READING_REPEAT_SHIFT), row, string ("-fold input averaging"))
+    wrstr (wrdec (wrstr (wrdec (SCR_COL_C, row, minfix), row, string(".0 <= val < ")), row, maxfix), row, string(".0"))
     row += 1
-    wrstr (wrstr (10, 40, fft.module_name), 40, string (" FFT module"))
+    wrstr (wrstr (SCR_COL_A, row, fft.module_name), row, string (" FFT module"))
     row += 1
-    wrstr (wrstr (10, 41, acq.module_name), 41, string (" Acquisition module"))
-    wrstr (wrdec (wrstr (50, 41, string ("Clock ")), 41, freq/1_000_000), 41, string (" MHz"))
-    
+    wrstr (wrstr (SCR_COL_A, row, acq.module_name), row, string (" Acquisition module"))
+    wrstr (wrdec (wrstr (SCR_COL_C, row, string ("Clock ")), row, freq/1_000_000), row, string (" MHz"))
+     
 
     repeat k from 1 to 15
         wrchar(3, 3 + 2*k, $2D)
@@ -222,7 +228,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, ro
         ser.str (string (" clks"))
         ser.tx(13)
         ser.tx(10)
-
+        {
 	ser.str (string("peaks "))
 	ser.dec (peaks_list[0])
         ser.tx(32)
@@ -246,7 +252,22 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, sampling_rate, horizontal, ro
 	ser.hex (peaks_list[8], 8)
         ser.tx(13)
         ser.tx(10)
+        }
+        row := 37
+	repeat 10
+            wrstr (0, row, string("          "))
+            row += 1
+        row := 37
+        i := 1
+        repeat peaks_list[0]
+            wrstr (wrunit(0, row, freq_for_col(peaks_list[i])), row, string("Hz"))
+            row += 1
+            i += 2
+   
 
+PUB  freq_for_col(col)
+    col *= (sampling_rate >> 1)
+    result := col >> 10
 
 PUB  wrchar (x, y, c) | s, caddr, fbase, j,k, l
     fbase := font.get_base

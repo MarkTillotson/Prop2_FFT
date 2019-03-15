@@ -33,6 +33,7 @@ VAR
     long  fft_cog
     long  testname
     long  errcount
+    long  total_errors
     long  scratch[2*MAXNN]
     long  scratch2[2*MAXNN]
     long  window[MAXNN]
@@ -131,6 +132,12 @@ PUB demo
     TestWindowHFT144D
     KillFFT
 
+    ser.tx(13)
+    ser.tx(10)
+    ser.dec (total_errors)
+    ser.str (string (" total errors"))
+    ser.tx(13)
+    ser.tx(10)
 
     ser.dec (FFT_timing)
     ser.str (string (" clks"))
@@ -202,6 +209,7 @@ PUB  Passed
     ser.str (testname)
     ser.str (string (" done with "))
     ser.dec (errcount)
+    total_errors += errcount
     ser.str (string (" errors"))
     ser.tx(13)
     ser.tx(10)
@@ -209,10 +217,12 @@ PUB  Passed
 PUB  StartTest(name)
     testname := name
     errcount := 0
+    {
     ser.str (testname)
     ser.str (string (": running"))
     ser.tx(13)
     ser.tx(10)
+    }
 
 
 PUB  InitFFT (N, fix, inp_flags, winid)

@@ -36,6 +36,7 @@ VAR
     
 
 PUB start
+    blank_addr := @is_blank
     cognew (@vga_engine, @vidram)
     result := @vidram
 
@@ -45,7 +46,16 @@ PUB outputter (N, array, stride)
     output_stride := stride
     result := @vga_output
 
+PUB is_blanking
+    result := is_blank
+
+PUB blank_address
+    result := @is_blank
+
+
 DAT
+is_blank	long	0
+
                 ORG     0
 vga_engine
 		mov	video_ptr, PTRA
@@ -76,6 +86,7 @@ vloop
 		mov	lineptr, blank_line  ' back porch loop
 vback		call	#scanline
 		djnz	count, #vback
+		wrlong	#0, blank_addr
 
 
 		mov	stream_d, ##STREAM_MODE_D_BLUE
@@ -124,6 +135,7 @@ active3		call	#scanline
 		djnz	count, #active3
 
 
+		wrlong	#1, blank_addr
 		mov	count, #VFRONT_COUNT  ' front porch loop
 		mov	lineptr, blank_line
 vfront		call	#scanline
@@ -211,6 +223,8 @@ gratpat		long	$33333333
 stream_s 	long    STREAM_MODE_S
 stream_d 	long    STREAM_MODE_D_GREEN
 nco_freq	long    STREAM_MODE_NCO_FREQ
+
+blank_addr	long	0
 
 time		res	1
 video_ptr	res	1

@@ -40,7 +40,7 @@ setup
                 RFLONG  frequency
 		djnz    v, #setup
 		mov	frequency2, frequency
-		shr	frequency2, #4
+		shr	frequency2, #3'8
 		add     frequency2, frequency
 '		mov  frequency, frequency2
 '		add frequency, ##$8000000
@@ -76,8 +76,8 @@ loop
 '  add frequency, t	'RFLONG  frequency          ' 2 cycle load of next frequency
 		jmp	#loop
 
-amplitude	long  $4000 '  $3FFF ' $6DB5   ' 1V rms with 3.3V full scale?        $3FFF
-amplitude2	long  $3F '   $3FFF ' $6DB5/10   ' 0.1V rms with 3.3V full scale?   $3FFF
+amplitude	long    $6DB5   ' 1V rms with 3.3V full scale?        $3FFF
+amplitude2	long    $6DB5/10   ' 0.1V rms with 3.3V full scale?   $3FFF
 signbit         long    $8000
 phase           long    0
 phase2          long    0

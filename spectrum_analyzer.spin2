@@ -28,9 +28,9 @@ CON
     DAC_PIN = 44
     DISPLAY_CYCLES = 1600
 
-    SCR_COL_A = 15
+    SCR_COL_A = 20
     SCR_COL_B = 44
-    SCR_COL_C = 54
+    SCR_COL_C = 58
 
     N = 11
     NN = 1 << N
@@ -61,7 +61,7 @@ CON
 OBJ
     ser: "SmartSerial.spin2"
     siggen: "sig_gen.spin2"
-    acq: "sa_acquire_calib.spin2"
+    acq: "sa_acquire_ads8885.spin2"
     fft: "fft_and_window.spin2"
     vga: "sa_vga_1280x768x2.spin2"
     out: "sa_scope_output.spin2"
@@ -91,12 +91,12 @@ VAR
     long  OUT_cycles
     long  OUT_ready_flag
 
-    long  peaks_list [2 * MAX_PEAKS]
+    long  peaks_list [1 + 2 * MAX_PEAKS]
 
     long  scratch [2*NN + NN/2 + 2*(NN/2+1)]  ' hold NN complex fix8.24 values
 
 
-PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row
+PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
     clkset (OSCMODE, FREQ)
     pausems (10)
     ser.start (63, 62, 0, BAUD)
@@ -109,6 +109,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row
 
     vidram := vga.start
     vga_out := vga.outputter (N, @scratch, 8)
+    blanker := vga.blank_address
     
     wrchar (0, 0, $2A)
     wrchar (79, 0, $2A)
@@ -253,14 +254,33 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row
         ser.tx(13)
         ser.tx(10)
         }
+        repeat until vga.is_blanking
+
         row := 37
 	repeat 10
-            wrstr (0, row, string("          "))
+            wrstr (0, row, string("                   "))
             row += 1
         row := 37
         i := 1
-        repeat peaks_list[0]
-            wrstr (wrunit(0, row, freq_for_col(peaks_list[i])), row, string("Hz"))
+        j := peaks_list[0]
+        if j > 9
+            j := 9
+        repeat j
+            j := ((100 * (peaks_list[i+1] >> 17) + 1024) >> 11) - 1600
+            wrstr (wrunit(0, row, freq_for_col(peaks_list[i])), row, string("Hz "))
+            k := abs(j)
+            col := 11
+            if k < 1000
+                col += 1
+                if k < 100
+                    col += 1
+            if j < 0
+                wrchar (col, row, $2D)
+            'wrdec(11, row, k)
+            col += 1
+            j := k // 10
+            k := k / 10
+            wrstr (wrdec (wrstr (wrdec (col, row, k), row, string(".")), row, j), row, string("dB"))
             row += 1
             i += 2
    
@@ -555,7 +575,9 @@ vga_clear       mov     PTRB, vidram
 		ret
 
 
-vga_output	call	#vga_clear
+vga_output	rdlong	t, blanker  wz   ' wait for blanking time
+	if_z	jmp	#vga_output
+		call	#vga_clear
 		mov	longoff, #4
 		mov	bitpatt, #1   ' bit
 		mov	prev_y, #0
@@ -626,6 +648,7 @@ accumptr	long	0
 window_params	long	0
 vidram		long	0
 vga_out		long	0
+blanker		long	0
 
 size            long    NN
 

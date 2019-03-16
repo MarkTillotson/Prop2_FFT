@@ -1,0 +1,301 @@
+{ sa_acquire_calib.spin2 
+  generate calibration signal normalized to 1 unit rms
+}
+
+CON
+
+{ params
+N		long
+fixint		long
+buffer		long
+pin		long
+cycles		long
+ready_flag	long
+}
+    POWER = 16
+
+    SLEEP = $FF
+
+PUB start(params)
+    table_addr := @firtable
+    cognew (@acquire_entry, params)
+
+
+PUB  module_name
+    result := string ("sa_acquire_pink")
+
+
+DAT
+		ORG	0
+
+acquire_entry	rdlong  N, PTRA++
+		rdlong	fixint, PTRA++
+		rdlong	t, PTRA++
+		rdlong	adc_pin, PTRA++
+		rdlong	adc_cycles, PTRA++
+		mov	ready_addr, PTRA
+
+		mov	PTRA, t
+		decod   size, N
+		mov	fixfract, #32
+		sub	fixfract, fixint
+		decod	one_value, fixfract
+
+		
+.loop		rdlong	t, ready_addr
+		cmp	t, #0  wz
+	if_z	jmp	#.loop
+
+		cmp	t, #SLEEP  wz
+	if_z	waitx	##1024
+	if_z	jmp	#.loop
+
+		call	#acquire	' read ADC samples
+
+		wrlong	#0, ready_addr
+		jmp	#.loop
+
+
+
+{ generic scan of array }
+
+iterate	        cmp	iter_action, #0  wz
+	if_z	jmp	iterate_ret
+	
+		mov	count, size
+		cmp	half, #0  wz
+	if_nz	shr	count, #1
+	if_nz	add	count, #1
+		mov	PTRB, PTRA
+.loop
+		rdlong	x, PTRB++
+		rdlong	y, PTRB--
+		call	iter_action
+		wrlong	x, PTRB++
+		wrlong	y, PTRB++
+		djnz	count, #.loop
+iterate_ret	ret
+
+iter_action	long	0
+half		long	0
+
+
+stenzel		' get bit mask from counter's lowest 1 and bit reversing
+		incmod  counter, mask
+		mov	bitmask, counter
+		neg	t, counter
+		and	bitmask, t    ' find lowest set bit in counter
+		rev	bitmask
+		shr	bitmask, #32-POWER  ' reverse so highest bit changes most rapidly
+
+		getrnd	t
+		testb	t, #12  wc
+		rcl	rand_sample, #1
+		
+		andn	dec, bitmask
+		mov	t, inc
+		and	t, bitmask
+		or	dec, t
+	if_c	xor	inc, bitmask
+		add	accum, inc
+		sub	accum, dec
+
+		mov	resul, accum
+
+		mov	t, rand_sample  ' lookup lower bits 5:0
+		and	t, #$3F
+		rdlut	t, t
+		add	resul, t
+
+		mov	t, rand_sample  ' lookup next bits 11:6
+		shr	t, #6
+		and	t, #$3F
+		add	t, #$40
+		rdlut	t, t
+		add	resul, t
+		ret
+
+table_addr	long	@firtable
+scale_shift 	long	0
+inc		long	$CCCC
+dec		long	$CCCC
+accum		long	0
+dac_offset	long	$8000
+counter		long	0
+mask		long    $FFFF
+
+{ faking acquisition, two tone }
+
+acq_sample	call    #stenzel
+		mov	t, #16+1
+		sub	t, fixint
+		shl	resul, t
+		mov	x, resul
+		mov	y, #0
+		ret
+
+
+
+acquire         setq2	#127
+		rdlong	#0, table_addr  ' copy tables to LUTram
+		
+		mov	iter_action, #acq_sample
+		jmp	#iterate
+
+
+bitmask		res	1
+resul		res	1
+rand_sample	res	1
+
+N		res     1
+size		res     1
+fixint		res	1
+fixfract	res	1
+adc_pin		res	1
+adc_cycles	res     1
+ready_addr	res	1
+count		res	1
+time		res	1
+val		res	1
+one_value	res	1
+a		res	1
+b		res	1
+t		res	1
+x		res	1
+y		res	1
+hi		res	1
+lo		res	1
+
+
+		FIT	$1F0
+
+firtable        long    -45437
+                long    32588
+                long    -34782
+                long    43243
+                long    -45292
+                long    32733
+                long    -34638
+                long    43387
+                long    -43768
+                long    34257
+                long    -33113
+                long    44912
+                long    -43623
+                long    34402
+                long    -32968
+                long    45057
+                long    -45537
+                long    32488
+                long    -34882
+                long    43143
+                long    -45392
+                long    32633
+                long    -34737
+                long    43288
+                long    -43867
+                long    34158
+                long    -33212
+                long    44813
+                long    -43723
+                long    34302
+                long    -33068
+                long    44957
+                long    -44957
+                long    33068
+                long    -34302
+                long    43723
+                long    -44813
+                long    33212
+                long    -34158
+                long    43867
+                long    -43288
+                long    34737
+                long    -32633
+                long    45392
+                long    -43143
+                long    34882
+                long    -32488
+                long    45537
+                long    -45057
+                long    32968
+                long    -34402
+                long    43623
+                long    -44912
+                long    33113
+                long    -34257
+                long    43768
+                long    -43387
+                long    34638
+                long    -32733
+                long    45292
+                long    -43243
+                long    34782
+                long    -32588
+                long    45437
+highpart
+                long    -231
+                long    -115
+                long    66
+                long    182
+                long    -333
+                long    -217
+                long    -36
+                long    80
+                long    -180
+                long    -64
+                long    117
+                long    233
+                long    -282
+                long    -166
+                long    14
+                long    131
+                long    -263
+                long    -147
+                long    34
+                long    150
+                long    -365
+                long    -249
+                long    -68
+                long    48
+                long    -212
+                long    -96
+                long    85
+                long    201
+                long    -314
+                long    -198
+                long    -17
+                long    99
+                long    -99
+                long    17
+                long    198
+                long    314
+                long    -201
+                long    -85
+                long    96
+                long    212
+                long    -48
+                long    68
+                long    249
+                long    365
+                long    -150
+                long    -34
+                long    147
+                long    263
+                long    -131
+                long    -14
+                long    166
+                long    282
+                long    -233
+                long    -117
+                long    64
+                long    180
+                long    -80
+                long    36
+                long    217
+                long    333
+                long    -182
+                long    -66
+                long    115
+                long    231
+

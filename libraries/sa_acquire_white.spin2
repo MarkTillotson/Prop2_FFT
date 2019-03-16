@@ -1,0 +1,161 @@
+{ sa_acquire_white.spin2 
+  white noise calibration signal
+}
+
+CON
+
+{ params
+N		long
+fixint		long
+buffer		long
+pin		long
+cycles		long
+ready_flag	long
+}
+    POWER = 16
+
+    SLEEP = $FF
+
+PUB start(params)
+    cognew (@acquire_entry, params)
+
+
+PUB  module_name
+    result := string ("sa_acquire_white")
+
+
+DAT
+		ORG	0
+
+acquire_entry	rdlong  N, PTRA++
+		rdlong	fixint, PTRA++
+		rdlong	t, PTRA++
+		rdlong	adc_pin, PTRA++
+		rdlong	adc_cycles, PTRA++
+		mov	ready_addr, PTRA
+
+		mov	PTRA, t
+		decod   size, N
+		mov	fixfract, #32
+		sub	fixfract, fixint
+		decod	one_value, fixfract
+		
+.loop		rdlong	t, ready_addr
+		cmp	t, #0  wz
+	if_z	jmp	#.loop
+
+		cmp	t, #SLEEP  wz
+	if_z	waitx	##1024
+	if_z	jmp	#.loop
+
+		call	#acquire	' read ADC samples
+
+		wrlong	#0, ready_addr
+		jmp	#.loop
+
+
+
+state1		long	0
+state2		long	0
+state3		long	0
+state4		long	0
+state5		long	0
+state6		long	0
+
+acq_sample	getrnd  x
+		sar	x, fixint
+		shl	x, #2     ' convert to +/- 2V, rms around 1V?
+'		sar	x, #11     ' 11 bit atten, about 0.5mV RMS
+
+		mov	t, x
+		sub	t, state1
+		sar	t, #2
+		add	state1, t
+
+		mov	t, state1
+		sub	t, state2
+		sar	t, #2
+		add	state2, t
+
+		mov	t, state2
+		sub	t, state3
+		sar	t, #2
+		add	state3, t
+
+		mov	t, state3
+		sub	t, state4
+		sar	t, #2
+		add	state4, t
+
+		mov	t, state4
+		sub	t, state5
+		sar	t, #2
+		add	state5, t
+
+		mov	t, state5
+		sub	t, state6
+		sar	t, #2
+		add	state6, t
+		
+		mov	x, state6
+{
+		mov	x, count
+		and     x, #62
+		sub     x, #31
+		shl	x, #27-5+1 'fixfract
+'		sar	x, #6-1
+}
+		mov	y, #0
+		ret
+
+
+acquire		mov	iter_action, #acq_sample
+		jmp	#iterate
+
+{ generic scan of array }
+
+iterate	        cmp	iter_action, #0  wz
+	if_z	jmp	iterate_ret
+	
+		mov	count, size
+		cmp	half, #0  wz
+	if_nz	shr	count, #1
+	if_nz	add	count, #1
+		mov	PTRB, PTRA
+.loop
+		rdlong	x, PTRB++
+		rdlong	y, PTRB--
+		call	iter_action
+		wrlong	x, PTRB++
+		wrlong	y, PTRB++
+		djnz	count, #.loop
+iterate_ret	ret
+
+iter_action	long	0
+half		long	0
+
+bitmask		res	1
+resul		res	1
+rand_sample	res	1
+
+N		res     1
+size		res     1
+fixint		res	1
+fixfract	res	1
+adc_pin		res	1
+adc_cycles	res     1
+ready_addr	res	1
+count		res	1
+time		res	1
+val		res	1
+one_value	res	1
+a		res	1
+b		res	1
+t		res	1
+x		res	1
+y		res	1
+hi		res	1
+lo		res	1
+
+
+		FIT	$1F0

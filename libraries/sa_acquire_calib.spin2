@@ -118,25 +118,24 @@ acq_sample      QROTATE amplitude, angle
 		nop
 		QROTATE amplitude2, angle2
 		add	angle2, freq2
-		nop
+		add	freq2, #7
 		nop
 		QROTATE amplitude3, angle3
 		add	angle3, freq3
-		nop
+		add	freq3, #7
 		nop
 		QROTATE amplitude4, angle4
 		add	angle4, freq4
-		nop
+		add	freq4, #7
 		nop
 		QROTATE amplitude5, angle5
 		add	angle5, freq5
-		nop
+		add	freq5, #7
 		nop
 		QROTATE amplitude6, angle6
 		add	angle6, freq6
-		nop
+		add	freq6, #7
 		GETQX   x
-		'sub	freq2, #240
 		nop
 		nop
 		GETQX   t

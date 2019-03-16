@@ -23,12 +23,13 @@ CON
     DAC_TESTPIN = 41
     ADC_PIN = 40 ' 40
     ADC_CYCLES =  625 ' 3333  ' about 48kSPS
-    ADC_READING_REPEAT_SHIFT = 2'7
+    ADC_READING_REPEAT_SHIFT = 0'2'7
 
     DAC_PIN = 44
     DISPLAY_CYCLES = 1600
 
-    SCR_COL_A = 20
+    SCR_COL_A = 16
+    SCR_COL_X = 24
     SCR_COL_B = 44
     SCR_COL_C = 58
 
@@ -40,16 +41,18 @@ CON
     maxfix = 1<<(FIXINT-1)
     minfix = -maxfix
 
-    MAX_PEAKS = 32
+    MAX_PEAKS = 12
+    PEAK_BIG_DIFF   = $14000000
+    PEAK_SMALL_DIFF = $02000000
 
     'WINDOW_SPEC = fft#RECT_WINDOW
-    'WINDOW_SPEC = fft#HANN_WINDOW
+    WINDOW_SPEC = fft#HANN_WINDOW
     'WINDOW_SPEC = fft#HAMMING_WINDOW
-    WINDOW_SPEC = fft#HFT95_WINDOW
+    'WINDOW_SPEC = fft#HFT95_WINDOW
     'WINDOW_SPEC = fft#HFT116D_WINDOW
     'WINDOW_SPEC = fft#HFT144D_WINDOW
 
-    AVERAGE_N = 7  ' average upto 2^AVERAGE_N times
+    AVERAGE_N = 0  ' average upto 2^AVERAGE_N times
     ZOOM_MIN = $00000000
     ZOOM_MAX = $FFFFFFFF
     ZOOM_POW = 0
@@ -61,7 +64,7 @@ CON
 OBJ
     ser: "SmartSerial.spin2"
     siggen: "sig_gen.spin2"
-    acq: "sa_acquire_ads8885.spin2"
+    acq: "sa_acquire_calib.spin2"
     fft: "fft_and_window.spin2"
     vga: "sa_vga_1280x768x2.spin2"
     out: "sa_scope_output.spin2"
@@ -145,17 +148,20 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
     wrstr (wrunit (68, row, sampling_rate>>1), row, string ("Hz"))
 
     row := 38
-    wrstr (wrdec (SCR_COL_A, row, 1 << AVERAGE_N), row, string ("-fold spectral averaging"))
-    wrstr (wrdec (wrstr (wrdec (wrstr (SCR_COL_C, row, string("Fixpoint ")), row, FIXINT), 38, string(".")), row, FIXFRACT), row, string (" arith"))
+    wrstr (wrdec (SCR_COL_X, row, 1 << AVERAGE_N), row, string ("-fold spectral averaging"))
     row += 1
-    wrstr (wrdec (SCR_COL_A, row, 1 << ADC_READING_REPEAT_SHIFT), row, string ("-fold input averaging"))
-    wrstr (wrdec (wrstr (wrdec (SCR_COL_C, row, minfix), row, string(".0 <= val < ")), row, maxfix), row, string(".0"))
+    wrstr (wrdec (SCR_COL_X, row, 1 << ADC_READING_REPEAT_SHIFT), row, string ("-fold input averaging"))
     row += 1
-    wrstr (wrstr (SCR_COL_A, row, fft.module_name), row, string (" FFT module"))
+    wrstr (wrstr (SCR_COL_X, row, fft.module_name), row, string (" FFT module"))
     row += 1
-    wrstr (wrstr (SCR_COL_A, row, acq.module_name), row, string (" Acquisition module"))
-    wrstr (wrdec (wrstr (SCR_COL_C, row, string ("Clock ")), row, freq/1_000_000), row, string (" MHz"))
-     
+    wrstr (wrstr (SCR_COL_X, row, acq.module_name), row, string (" Acquisition module"))
+    row += 2 
+    wrstr (wrdec (wrstr (wrdec (wrstr (SCR_COL_X, row, string("Fixpoint ")), row, FIXINT), 38, string(".")), row, FIXFRACT), row, string (" arith"))
+    row += 1
+    wrstr (wrdec (wrstr (wrdec (SCR_COL_X, row, minfix), row, string(".0 <= val < ")), row, maxfix), row, string(".0"))
+    row += 1
+    wrstr (wrdec (wrstr (SCR_COL_X, row, string ("Clock ")), row, freq/1_000_000), row, string (" MHz"))
+   
 
     repeat k from 1 to 15
         wrchar(3, 3 + 2*k, $2D)
@@ -210,7 +216,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
     
     cognew (@entry, @scratch)
     repeat
-        pausems(1000)
+        pausems(200)
         ser.str (string ("mu^2="))
         ser.hex (window_mu2, 8)
         ser.tx(32)
@@ -229,31 +235,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
         ser.str (string (" clks"))
         ser.tx(13)
         ser.tx(10)
-        {
-	ser.str (string("peaks "))
-	ser.dec (peaks_list[0])
-        ser.tx(32)
-	ser.hex (peaks_list[1], 4)
-        ser.tx(32)
-	ser.hex (peaks_list[2], 8)
-        ser.tx(32)
-        ser.tx(32)
-	ser.hex (peaks_list[3], 4)
-        ser.tx(32)
-	ser.hex (peaks_list[4], 8)
-        ser.tx(32)
-        ser.tx(32)
-	ser.hex (peaks_list[5], 4)
-        ser.tx(32)
-	ser.hex (peaks_list[6], 8)
-        ser.tx(32)
-        ser.tx(32)
-	ser.hex (peaks_list[7], 4)
-        ser.tx(32)
-	ser.hex (peaks_list[8], 8)
-        ser.tx(13)
-        ser.tx(10)
-        }
+     
         repeat until vga.is_blanking
 
         row := 37
@@ -266,21 +248,20 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
         if j > 9
             j := 9
         repeat j
-            j := ((100 * (peaks_list[i+1] >> 17) + 1024) >> 11) - 1600
+            j := ((1000 * (peaks_list[i+1] >> 17) + 1024) >> 11) - 16000
             wrstr (wrunit(0, row, freq_for_col(peaks_list[i])), row, string("Hz "))
             k := abs(j)
             col := 11
-            if k < 1000
+            if k < 10000
                 col += 1
-                if k < 100
+                if k < 1000
                     col += 1
             if j < 0
                 wrchar (col, row, $2D)
-            'wrdec(11, row, k)
             col += 1
-            j := k // 10
-            k := k / 10
-            wrstr (wrdec (wrstr (wrdec (col, row, k), row, string(".")), row, j), row, string("dB"))
+            j := k // 100
+            k := k / 100
+            wrstr (wrdecn (wrstr (wrdec (col, row, k), row, string(".")), row, j, 2), row, string(" dBV"))
             row += 1
             i += 2
    
@@ -324,6 +305,13 @@ PUB  wrdec (x, y, v)
         else
             result := wrdec (wrdec (x, y, v / 10), y, v // 10)
 
+PUB  wrdecn (x, y, v, n)
+    if n == 1
+        wrchar (x, y, $30+v)
+        result := x+1
+    else
+        result := wrdec (wrdecn (x, y, v / 10, n-1), y, v // 10)
+
 PUB  wrdec3 (x, y, v)
     if v < 100
         wrchar (x, y, $30)
@@ -341,6 +329,8 @@ PUB  wrunit (x, y, v) | thou, units
     else
         thou := v / 1000
         units := v // 1000
+        if thou < 10
+            x += 1
         result := wrstr (wrdec3 (wrstr (wrdec (x, y, thou), y, string(".")), y, units), y, string(" k"))
     
 DAT
@@ -377,16 +367,14 @@ entry           mov     base, PTRA
                 call    #acquire        ' read ADC samples
               ' mov     offset, ##$8000
                 'call   #output
-
                 call    #do_fft         ' perform forward FFT
                 mov     half, #1
                 call    #average        ' sum into accum
                 call    #logconvert     ' replace with log(x)
 		call	#peak_find
-               '' call    #add_graticule
-
-             ' mov     offset, #0
-              '  call    #output         ' show on DAC
+              ' call    #add_graticule
+              ' mov     offset, #0
+              ' call    #output         ' show on DAC
                 call    #vga_output         ' show on DAC
                 mov     half, #0
                 jmp     #.loop
@@ -652,8 +640,6 @@ blanker		long	0
 
 size            long    NN
 
-peak_big_diff	long	$18000000
-peak_small_diff	long	$04000000
 peak_table	long	0   ' needs setting up
 peak_i		res	1
 peak_curr	res	1
@@ -779,7 +765,7 @@ peak_find_step	mov	peak_curr, x  ' x is log scale, y is irrelevant
 		sub	peak_diff, peak_prev
 		jmp	peak_state
 peakfind_idle
-		cmps	peak_diff, PEAK_BIG_DIFF  wcz
+		cmps	peak_diff, ##PEAK_BIG_DIFF  wcz
 	if_b	jmp	#peak_find_ret
 		cmp	peak_count, #MAX_PEAKS  wcz
 	if_ae	mov	peak_state, ##peakfind_full
@@ -793,13 +779,13 @@ peakfind_newmax
 		jmp	#peak_find_ret
 
 peakfind_start
-		cmps	peak_diff, PEAK_SMALL_DIFF  wcz
+		cmps	peak_diff, ##PEAK_SMALL_DIFF  wcz
 	if_b	mov	peak_state, ##peakfind_peak
 	if_b	jmp	peak_state
 		jmp	#peakfind_newmax
 		
 peakfind_peak	neg	peak_diff
-		cmps	peak_diff, PEAK_SMALL_DIFF  wcz
+		cmps	peak_diff, ##PEAK_SMALL_DIFF  wcz
 	if_ae	mov	peak_state, ##peakfind_idle
 		rdlong	t, PTRB[1]
 		cmp	peak_curr, t  wcz

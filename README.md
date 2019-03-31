@@ -1,10 +1,12 @@
 # Prop2_FFT
 FFT library for Propeller2 microcontroller
 
-See the description in each version of the library, currently libraries/fft_and_window.spin2
+See the description in each version of the library, currently
+  libraries/fft_and_window.spin2   <<<<<< the FFT library itself.
+
 The software is currently under testing and development, not stable or released.
 
-My test harness for spectral analysis is included to enable more interesting testing,
+My test harnesses for spectral analysis is included to enable more interesting testing:
 
 VGA 1280x768 support:
   libraries/font.spin2
@@ -23,3 +25,7 @@ Acquisition:  (these share a common interface)
 
 spectrum_analyzer.spin2  - top level driver for all of this and the FFT library to display live and
   averaged power spectra
+
+peak_finder.spin2 - top level driver outputing peak table to serial, just uses smartpin ADC acquisition
+  and the sig_gen utility, stripped down from spectrum_analyzer.spin2, only needs couple of smartpins
+  and serial out.

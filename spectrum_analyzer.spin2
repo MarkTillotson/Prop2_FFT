@@ -22,8 +22,8 @@ CON
 
     DAC_TESTPIN = 41
     ADC_PIN = 40 ' 40
-    ADC_CYCLES =  625 ' 3333  ' about 48kSPS
-    ADC_READING_REPEAT_SHIFT = 0'2'7
+    ADC_CYCLES = 480 '625 ' 3333  ' about 48kSPS
+    ADC_READING_REPEAT_SHIFT = 3
 
     DAC_PIN = 44
     DISPLAY_CYCLES = 1600
@@ -42,20 +42,25 @@ CON
     minfix = -maxfix
 
     MAX_PEAKS = 12
-    PEAK_BIG_DIFF   = $14000000
-    PEAK_SMALL_DIFF = $02000000
+    PEAK_BIG_DIFF   = $20000000
+    PEAK_SMALL_DIFF = $04000000
 
     'WINDOW_SPEC = fft#RECT_WINDOW
-    WINDOW_SPEC = fft#HANN_WINDOW
+    'WINDOW_SPEC = fft#HANN_WINDOW
     'WINDOW_SPEC = fft#HAMMING_WINDOW
     'WINDOW_SPEC = fft#HFT95_WINDOW
-    'WINDOW_SPEC = fft#HFT116D_WINDOW
+    WINDOW_SPEC = fft#HFT116D_WINDOW
     'WINDOW_SPEC = fft#HFT144D_WINDOW
 
+    MINHOLD_MODE = 0
+    MAXHOLD_MODE = 0
     AVERAGE_N = 0  ' average upto 2^AVERAGE_N times
+
     ZOOM_MIN = $00000000
     ZOOM_MAX = $FFFFFFFF
     ZOOM_POW = 0
+
+    X_LOG_SCALE = 0
 
     FFT_WITH_MAGSQR = fft#GO | fft#DO_FORWARDS | fft#DO_SCALED | fft#DO_MAG_SQR | fft#DO_WINDOW
     SLEEP = $FF
@@ -64,7 +69,7 @@ CON
 OBJ
     ser: "SmartSerial.spin2"
     siggen: "sig_gen.spin2"
-    acq: "sa_acquire_calib.spin2"
+    acq: "sa_acquire.spin2"
     fft: "fft_and_window.spin2"
     vga: "sa_vga_1280x768x2.spin2"
     out: "sa_scope_output.spin2"
@@ -144,8 +149,8 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
 
     row := 36
     wrstr (6, row, string("0 Hz"))
-    wrstr (wrunit (36, row, sampling_rate>>2), row, string ("Hz"))
-    wrstr (wrunit (68, row, sampling_rate>>1), row, string ("Hz"))
+    wrstr (wrunit (36, row, freq_for_col(NN>>2)), row, string ("Hz"))
+    wrstr (wrunit (68, row, freq_for_col(NN>>1)), row, string ("Hz"))
 
     row := 38
     wrstr (wrdec (SCR_COL_X, row, 1 << AVERAGE_N), row, string ("-fold spectral averaging"))
@@ -214,6 +219,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
     window_mu2 := 0
     window_sig2 := 0
     
+    log_mode := X_LOG_SCALE
     cognew (@entry, @scratch)
     repeat
         pausems(200)
@@ -240,7 +246,7 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
 
         row := 37
 	repeat 10
-            wrstr (0, row, string("                   "))
+            wrstr (0, row, string("                      "))
             row += 1
         row := 37
         i := 1
@@ -268,7 +274,8 @@ PUB main | i, j, k, x, y, s, fbase, caddr, caddr2, horizontal, row, col
 
 PUB  freq_for_col(col)
     col *= (sampling_rate >> 1)
-    result := col >> 10
+    result := col >> (N-1)
+    
 
 PUB  wrchar (x, y, c) | s, caddr, fbase, j,k, l
     fbase := font.get_base
@@ -361,15 +368,22 @@ entry           mov     base, PTRA
                 shr     size, #2
                 add     accumptr, size
                 shr     size, #1
-                'call    #gen_window
 
-.loop           'call   #testpatt
+.loop         ' call   #testpatt
                 call    #acquire        ' read ADC samples
               ' mov     offset, ##$8000
-                'call   #output
+              ' call   #output
                 call    #do_fft         ' perform forward FFT
                 mov     half, #1
+
+		mov	t, #0
+		mov	iter_action, ##avg
+		cmp	t, #MINHOLD_MODE  wz
+	if_nz	mov	iter_action, ##minhold
+		cmp	t, #MAXHOLD_MODE  wz
+	if_nz	mov	iter_action, ##maxhold
                 call    #average        ' sum into accum
+
                 call    #logconvert     ' replace with log(x)
 		call	#peak_find
               ' call    #add_graticule
@@ -427,11 +441,18 @@ iterate         cmp     iter_action, #0  wz
         if_nz   add     count, #1
                 mov     PTRA, base
 .loop
-                rdlong  x, PTRA++
-                rdlong  y, PTRA--
-                call    iter_action
-                wrlong  x, PTRA++
-                wrlong  y, PTRA++
+		'rdlong  x, PTRA++
+                'rdlong  y, PTRA--
+		setq	#2-1
+		rdlong  x, PTRA
+
+		call    iter_action
+
+		setq    #2-1
+		wrlong  x, PTRA
+		add	PTRA, #8
+                'wrlong  x, PTRA++
+                'wrlong  y, PTRA++
                 djnz    count, #.loop
                 mov     PTRA, base
 iterate_ret     ret
@@ -472,17 +493,18 @@ acquire_ret     ret
 
 avg_divisor     long    0
 
-logconvert      mov     t, avgcount
-                add     t, #1
-                shl     t, #32-AVERAGE_N    ' varies upto FF000000
+logconvert      mov     t, #0
+	        cmp	t, #MINHOLD_MODE + MAXHOLD_MODE  wz
+	if_z	mov     t, avgcount
+        if_z    shl     t, #32-AVERAGE_N    ' varies upto FF000000
+	if_nz	mov     t, #0
                 QLOG    t
                 GETQX   avg_divisor  ' varies C0000000..FFF.....
                 sar     avg_divisor, #1
                 
                 mov     PTRB, accumptr
                 mov     iter_action, #logify
-                call    #iterate
-logconvert_ret  ret
+                jmp     #iterate     ' tail call
 
 
 logify          rdlong  x, PTRB++
@@ -565,20 +587,43 @@ vga_clear       mov     PTRB, vidram
 
 vga_output	rdlong	t, blanker  wz   ' wait for blanking time
 	if_z	jmp	#vga_output
+
 		call	#vga_clear
-		mov	longoff, #4
-		mov	bitpatt, #1   ' bit
+		mov	ind, #0
 		mov	prev_y, #0
-		mov	size_save, size
-		fle	size, ##1024*2
+
 		mov	iter_action, #vgaplot
-		call	#iterate
-		mov	size, size_save
+	        cmp	log_mode, #0  wz
+	if_z	mov	xscale, #linear_xscale
+	if_nz	mov	xscale, #log_xscale
+		jmp	#iterate
+
+log_mode	long	1
+ind		long	0
+xscale		long	0
+
+
+linear_xscale   mov	val, ind
+		shl	val, #11
+		shr	val, #N
+xscale_comm
+		mov	longoff, val
+		shr	longoff, #5
+		add	longoff, #4
+		decod	bitpatt, val
 		ret
 
-size_save	long	0
+log_xscale	mov	val, ind
+		shl	val, #8
+		QLOG	val
+		GETQX	val
+		sub	val, ##$40000000
+		shr	val, #27-10+4
+		jmp	#xscale_comm
 
-vgaplot	        
+vgaplot
+                call	xscale
+		
 		mov	val, x
 	        shr     val, #32-9   ' scale to 512 range
 		mov	miny, ##512 + 64
@@ -607,11 +652,8 @@ vgaplot
 		wrlong	a, miny
 		add	miny, #41*4
 		djnz    rowcnt, #.loop
-		
-		rol	bitpatt, #1
-	        cmp	bitpatt, #1  wz
-	if_z    add	longoff, #1
 
+		add	ind, #1
 		ret
 
 rowcnt		long	0
@@ -653,7 +695,7 @@ time            res     1
 val             res     1
 t               res     1
 tt              res     1
-x               res     1
+x               res     1   ' x, y contiguous
 y               res     1
 x2              res     1
 y2              res     1
@@ -710,20 +752,17 @@ output_vidptr	long	0
 {{ LUT code }}
                 ORG     $200
 lutstart
-average
-                add     avgcount, #1
-		shl	avgcount, #1
-                zerox   avgcount, #AVERAGE_N
+average         shl	avgcount, #1
+		zerox   avgcount, #AVERAGE_N
 		shr	avgcount, #1
-                mov     PTRB, accumptr
-                mov     iter_action, ##avg
-                call    #iterate
-                ret
+	        add     avgcount, #1
+		mov     PTRB, accumptr	
+                jmp     #iterate     ' tail call
 
-avg             rdlong  hi, PTRB++
-                rdlong  lo, PTRB--
-
-                cmp     avgcount, #0  wz
+avg		setq	#2-1
+		rdlong	hi, PTRB   ' hi, lo contiguous
+	
+                cmp     avgcount, #1  wz
         if_z    mov     hi, #0
         if_z    mov     lo, #0
 
@@ -736,10 +775,46 @@ avg             rdlong  hi, PTRB++
                 add     lo, y  wc
                 addx    hi, x
 
-                wrlong  hi, PTRB++
-                wrlong  lo, PTRB++
+		setq	#2-1
+		wrlong	hi, PTRB
+		add	PTRB, #8
                 ret
 
+
+maxhold		setq    #2-1
+		rdlong	hi, PTRB
+
+                cmp     avgcount, #1  wz
+        if_z    mov     hi, #0
+        if_z    mov     lo, #0
+
+		cmp	hi, x  wcz
+		fge	hi, x
+	if_z	fge	lo, y
+	if_b	mov	lo, y
+
+		setq	#2-1
+		wrlong	hi, PTRB
+		add	PTRB, #8
+		ret
+
+
+minhold		setq    #2-1
+		rdlong	hi, PTRB
+
+                cmp     avgcount, #1  wz
+        if_z    neg     hi, #1
+        if_z    neg     lo, #1
+
+		cmp	hi, x  wcz
+		fle	hi, x
+	if_z	fle	lo, y
+	if_a	mov	lo, y
+
+		setq	#2-1
+		wrlong	hi, PTRB
+		add	PTRB, #8
+		ret
 
 
 peak_find	call	#peak_find_init

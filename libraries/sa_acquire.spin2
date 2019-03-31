@@ -19,6 +19,7 @@ buffer		long
 pin		long
 cycles		long
 ready_flag	long
+repeat		long
 }
 
 PUB start(params)
@@ -38,6 +39,8 @@ acquire_entry	rdlong  N, PTRA++
 		rdlong	adc_pin, PTRA++
 		rdlong	adc_cycles, PTRA++
 		mov	ready_addr, PTRA
+		rdlong  adc_repeat, ++PTRA
+		shl	adc_cycles, adc_repeat
 
 		mov	PTRA, t
 		decod   size, N
@@ -272,6 +275,7 @@ fixint		res	1
 fixfract	res	1
 adc_pin		res	1
 adc_cycles	res     1
+adc_repeat	res	1
 ready_addr	res	1
 count		res	1
 time		res	1

@@ -13,6 +13,7 @@ buffer		long
 pin		long
 cycles		long
 ready_flag	long
+adc_repeat	long
 }
 
 PUB start(params)
@@ -45,6 +46,8 @@ acquire_entry	rdlong  N, PTRA++
 		dirh	#CONVST
 		dirh	#DIN
 		outh	#DIN
+
+		call	#set_shifts
 		
 .loop		rdbyte	t, ready_addr
 		cmp	t, #0  wz
@@ -64,22 +67,41 @@ acquire_entry	rdlong  N, PTRA++
 
 { generic scan of array }
 
-iterate	        cmp	iter_action, #0  wz
-	if_z	jmp	iterate_ret
-	
-		mov	count, size
-		cmp	half, #0  wz
-	if_nz	shr	count, #1
-	if_nz	add	count, #1
+iterate_rw	mov	count, size
 		mov	PTRB, PTRA
 .loop
-		rdlong	x, PTRB++
-		rdlong	y, PTRB--
+		setq	#2-1
+		rdlong  x, PTRB
 		call	iter_action
-		wrlong	x, PTRB++
-		wrlong	y, PTRB++
+		setq	#2-1
+		wrlong	x, PTRB
+		add	PTRB, #8
 		djnz	count, #.loop
-iterate_ret	ret
+		ret
+
+{ readonly generic scan of array }
+
+iterate_ro	mov	count, size
+		mov	PTRB, PTRA
+.loop
+		setq	#2-1
+		rdlong  x, PTRB
+		add	PTRB, #8
+		call	iter_action
+		djnz	count, #.loop
+		ret
+
+{ writeonly generic scan of array }
+
+iterate_wo	mov	count, size
+		mov	PTRB, PTRA
+.loop
+		call	iter_action
+		setq	#2-1
+		wrlong	x, PTRB
+		add	PTRB, #8
+		djnz	count, #.loop
+		ret
 
 iter_action	long	0
 half		long	0
@@ -114,25 +136,26 @@ acq_sample
 		add	x, val
 		djnz	rcount, #.loop
 
+		shl	x, lshift     ' scale as fast as poss
+		sar	x, rshift
+'		mul	x, cal_mult
+'		shl	x, cal_shift
+		mov	y, #0
+		ret
+
+lshift		long	0
+rshift		long	0
+
+set_shifts	
 		mov	t, #32-18
 		sub	t, fixint
 		sub	t, adc_repeat
 		add	t, #1
 
 		cmp	t, #0  wcz
-	if_ae	shl	x, t
+	if_ae	mov	lshift, t
 	if_b	neg	t
-	if_b	sar	x, t
-{
-		sar	x, adc_repeat
-		shl	x, #32-18
-		sar	x, fixint
-		shl	x, #1
-}
-'		mul	x, cal_mult
-'		shl	x, cal_shift
-		mov	y, #0
-		ret
+	if_b	mov	rshift, t
 
 
 acquire		getct   time
@@ -144,27 +167,33 @@ acquire		getct   time
 		djnz	count, #.loop
 		
 		mov	iter_action, #acq_sample
-		call	#iterate
+		call	#iterate_wo
 
 		dirl	adc_pin
 		ret
 
 
 read8885	outh	#CONVST
-		mov	bcount, #18
+		mov	bcount, #18-1    ' should be doing housekeeping here...
 		mov	val, #0
-		waitx	#216-6
+		waitx	#208-6
 		outl	#CONVST
 		nop
 		nop
+	        outh    #SCLK
+		nop
 bloop
-		outh	#SCLK
-		nop
-		nop
+		'nop
 		testp	#dout  wc
 		outl	#SCLK
 		rcl	val, #1
+	        outh    #SCLK
 		djnz	bcount, #bloop
+
+		nop
+		testp   #dout  wc
+		outl	#SCLK
+		rcl     val, #1
 		ret
 
 
@@ -175,7 +204,7 @@ remove_dc
 		mov	lo, #0
 
 		mov	iter_action, #remove1
-		call	#iterate
+		call	#iterate_ro
 
 		mov	t, #32
 		sub	t, N
@@ -184,7 +213,7 @@ remove_dc
 		or	hi, lo
 
 		mov	iter_action, #remove2
-		jmp	#iterate    ' tail call
+		jmp	#iterate_rw    ' tail call
 
 
 remove1		testb   x, #31  wz
@@ -204,7 +233,6 @@ fixfract	res	1
 adc_pin		res	1
 adc_cycles	res     1
 adc_repeat	res	1
-rough_shift	res	1
 ready_addr	res	1
 count		res	1
 bcount		res	1
@@ -218,9 +246,6 @@ x		res	1
 y		res	1
 hi		res	1
 lo		res	1
-x2		res	1
-x3		res	1
-x4		res	1
 
 
 		FIT	$1EC
